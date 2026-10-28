@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "hosts": {
+    "10.1.1.10": {
+      "addr": "10.1.1.10",
+      "subnet": "10.1.1.0/24",
+      "uid": "uid://c251yl1scfpm1",
+      "node": "CharacterBody2D",
+      "name": "%Player",
+      "scene": "res://scenes/player.tscn",
+      "script": "res://scripts/player.gd",
+      "owner_scene": "res://scenes/main.tscn",
+      "tree": "Main/Player",
+      "props": {
+        "speed": "float",
+        "velocity": "Vector2"
+      },
+      "signals": [
+        "child_entered_tree",
+        "child_exiting_tree",
+        "child_order_changed",
+        "draw",
+        "editor_description_changed",
+        "hidden",
+        "input_event",
+        "item_rect_changed",
+        "mouse_entered",
+        "mouse_exited",
+        "mouse_shape_entered",
+        "mouse_shape_exited",
+        "property_list_changed",
+        "ready",
+        "renamed",
+        "replacing_by",
+        "script_changed",
+        "tree_entered",
+        "tree_exited",
+        "tree_exiting",
+        "visibility_changed"
+      ],
+      "methods": [
+        "_on_player_child_entered_tree",
+        "_on_player_hidden",
+        "_on_player_item_rect_changed",
+        "_on_player_ready",
+        "_on_player_renamed",
+        "_on_player_tree_entered",
+        "_on_player_tree_exited",
+        "_on_player_tree_exiting",
+        "_on_player_visibility_changed",
+        "_on_timer_timeout",
+        "_physics_process"
+      ],
+      "signal_args": {
+        "child_entered_tree": [
+          "Object"
+        ],
+        "child_exiting_tree": [
+          "Object"
+        ],
+        "child_order_changed": [],
+        "draw": [],
+        "editor_description_changed": [
+          "Object"
+        ],
+        "hidden": [],
+        "input_event": [
+          "Object",
+          "Object",
+          "int"
+        ],
+        "item_rect_changed": [],
+        "mouse_entered": [],
+        "mouse_exited": [],
+        "mouse_shape_entered": [
+          "int"
+        ],
+        "mouse_shape_exited": [
+          "int"
+        ],
+        "property_list_changed": [],
+        "ready": [],
+        "renamed": [],
+        "replacing_by": [
+          "Object"
+        ],
+        "script_changed": [],
+        "tree_entered": [],
+        "tree_exited": [],
+        "tree_exiting": [],
+        "visibility_changed": []
+      },
+      "method_args": {
+        "_on_player_child_entered_tree": 0,
+        "_on_player_hidden": 0,
+        "_on_player_item_rect_changed": 0,
+        "_on_player_ready": 0,
+        "_on_player_renamed": 0,
+        "_on_player_tree_entered": 0,
+        "_on_player_tree_exited": 0,
+        "_on_player_tree_exiting": 0,
+        "_on_player_visibility_changed": 0,
+        "_on_timer_timeout": 0,
+        "_physics_process": 1
+      },
+      "peering": {
+        "pub_sub": "signals_upward",
+        "multicast": "call_group",
+        "ixp": "/root/InterconnectBus"
+      },
+      "exclude": [
+        "KinematicBody2D",
+        "../../"
+      ]
+    },
+    "10.1.1.11": {
+      "addr": "10.1.1.11",
+      "subnet": "10.1.1.0/24",
+      "uid": "uid://d2bklqgtbb8i4",
+      "node": "Timer",
+      "name": "%Timer",
+      "scene": "res://scenes/main.tscn",
+      "script": "",
+      "owner_scene": "res://scenes/main.tscn",
+      "tree": "Main/Timer",
+      "props": {
+        "autostart": "bool",
+        "one_shot": "bool",
+        "wait_time": "float"
+      },
+      "signals": [
+        "child_entered_tree",
+        "child_exiting_tree",
+        "child_order_changed",
+        "editor_description_changed",
+        "property_list_changed",
+        "ready",
+        "renamed",
+        "replacing_by",
+        "script_changed",
+        "timeout",
+        "tree_entered",
+        "tree_exited",
+        "tree_exiting"
+      ],
+      "methods": [],
+      "signal_args": {
+        "child_entered_tree": [
+          "Object"
+        ],
+        "child_exiting_tree": [
+          "Object"
+        ],
+        "child_order_changed": [],
+        "editor_description_changed": [
+          "Object"
+        ],
+        "property_list_changed": [],
+        "ready": [],
+        "renamed": [],
+        "replacing_by": [
+          "Object"
+        ],
+        "script_changed": [],
+        "timeout": [],
+        "tree_entered": [],
+        "tree_exited": [],
+        "tree_exiting": []
+      },
+      "method_args": {},
+      "peering": {
+        "pub_sub": "signals_upward",
+        "multicast": "call_group",
+        "ixp": "/root/InterconnectBus"
+      },
+      "exclude": [
+        "KinematicBody2D",
+        "../../"
+      ]
+    }
+  }
+}

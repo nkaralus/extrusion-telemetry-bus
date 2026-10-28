@@ -1,0 +1,70 @@
+{
+  "plan_id": "p0009",
+  "created": "2026-10-21 14:15:09",
+  "plan": {
+    "intent": "when the player is renamed, raise its speed by 25, then lower the speed by 5",
+    "node": "%Player",
+    "assumptions": [
+      "'renamed' = the existing renamed handler, so its body is replaced",
+      "'raise/lower' = += / -= on the float speed"
+    ],
+    "steps": [
+      {
+        "do": "change_handler",
+        "handler": "_on_player_renamed",
+        "then": [
+          {
+            "increase": {
+              "property": "speed",
+              "by": 25.0
+            }
+          },
+          {
+            "decrease": {
+              "property": "speed",
+              "by": 5.0
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x600A",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_player_renamed",
+      "args": [],
+      "returns": "void",
+      "body": [
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "+=",
+          "value": 25.0
+        },
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "-=",
+          "value": 5.0
+        }
+      ],
+      "message": "",
+      "mode": "replace",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

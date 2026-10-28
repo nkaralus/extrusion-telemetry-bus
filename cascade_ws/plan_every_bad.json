@@ -1,0 +1,1 @@
+{"intent": "every 2 seconds, add 25 to the player's speed and print tick", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "every", "seconds": 2.0, "then": [{"increase": {"property": "speed", "by": 25.0}}, {"print": "tick"}]}]}

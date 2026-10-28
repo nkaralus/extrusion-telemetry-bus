@@ -1,0 +1,14 @@
+{
+  "intent": "move the player with arrow keys or wasd",
+  "node": "%Player",
+  "steps": [
+    {
+      "do": "move_with_keys",
+      "template": "input_vector_8way",
+      "left": "move_left",
+      "right": "move_right",
+      "up": "move_up",
+      "down": "move_down"
+    }
+  ]
+}

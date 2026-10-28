@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "seq": 4,
+  "cursors": {
+    "CONTROL": 2,
+    "SCRAP": 1,
+    "SAW": 2,
+    "REMNANT": 1
+  },
+  "control": {
+    "bus": "10.1.0.1",
+    "model_agent": "10.1.0.2"
+  },
+  "hopper_addr": "10.5.1.1",
+  "profiles": {
+    "EXT-240-OPEN": {
+      "part_number": "EXT-240-OPEN",
+      "description": "2x4 Open Screen Extrusion",
+      "alloy": "6063-T6",
+      "width_in": 4.0,
+      "depth_in": 2.0,
+      "key_feature": "spline_groove",
+      "lb_per_ft": 1.05,
+      "bay_color": "BLUE",
+      "aliases": [
+        "2x4",
+        "2 x 4",
+        "screen brace",
+        "brace",
+        "open screen"
+      ],
+      "cost_per_ft": 4.1,
+      "std_stick_in": 288.0,
+      "lead_time_days": 5.0,
+      "min_stock_sticks": 0,
+      "rack_slots": 40
+    },
+    "EXT-220-OPEN": {
+      "part_number": "EXT-220-OPEN",
+      "description": "2x2 Open Screen Extrusion",
+      "alloy": "6063-T6",
+      "width_in": 2.0,
+      "depth_in": 2.0,
+      "key_feature": "spline_groove",
+      "lb_per_ft": 0.62,
+      "bay_color": "BLUE",
+      "aliases": [
+        "2x2",
+        "2 x 2",
+        "upright",
+        "post"
+      ],
+      "cost_per_ft": 2.35,
+      "std_stick_in": 288.0,
+      "lead_time_days": 5.0,
+      "min_stock_sticks": 0,
+      "rack_slots": 40
+    },
+    "EXT-HW-BOX": {
+      "part_number": "EXT-HW-BOX",
+      "description": "Heavy-wall structural box tube",
+      "alloy": "6061-T6",
+      "width_in": 3.0,
+      "depth_in": 3.0,
+      "key_feature": null,
+      "lb_per_ft": 2.4,
+      "bay_color": "GREEN",
+      "aliases": [
+        "box tube",
+        "heavy wall"
+      ],
+      "cost_per_ft": 7.8,
+      "std_stick_in": 288.0,
+      "lead_time_days": 5.0,
+      "min_stock_sticks": 0,
+      "rack_slots": 40
+    },
+    "EXT-220-BOX": {
+      "part_number": "EXT-220-BOX",
+      "description": "2x2 box tube post",
+      "alloy": "6061-T6",
+      "width_in": 2.0,
+      "depth_in": 2.0,
+      "key_feature": null,
+      "lb_per_ft": 0.95,
+      "bay_color": "GREEN",
+      "aliases": [
+        "2x2 box tube"
+      ],
+      "cost_per_ft": 3.6,
+      "std_stick_in": 288.0,
+      "lead_time_days": 5.0,
+      "min_stock_sticks": 0,
+      "rack_slots": 40
+    }
+  },
+  "stations": {
+    "10.3.1.1": {
+      "addr": "10.3.1.1",
+      "name": "SAW_1",
+      "kind": "chop_saw",
+      "reach": [
+        "10.2.1.0/24",
+        "10.2.2.0/24"
+      ]
+    },
+    "10.3.1.2": {
+      "addr": "10.3.1.2",
+      "name": "SAW_2",
+      "kind": "miter_saw",
+      "reach": [
+        "10.2.1.0/24",
+        "10.2.2.0/24"
+      ]
+    }
+  },
+  "stock": {
+    "10.2.2.1": {
+      "addr": "10.2.2.1",
+      "uid": "uid://inv/remnant/EXT-240-OPEN_000001",
+      "kind": "remnant",
+      "profile": "EXT-240-OPEN",
+      "long_point_in": 74.25,
+      "guaranteed_square_in": 74.25,
+      "end_a": {
+        "type": "square",
+        "miter_deg": 0.0,
+        "long_point_face": "uniform"
+      },
+      "end_b": {
+        "type": "square",
+        "miter_deg": 0.0,
+        "long_point_face": "uniform"
+      },
+      "bin_location": "BLUE-MEDIUM",
+      "allocated_job_id": null,
+      "legacy": true
+    }
+  },
+  "carts": {},
+  "scrap_ledger": [],
+  "unaccounted": [],
+  "dlq": [],
+  "journal": [
+    {
+      "seq": 2,
+      "ts": 1793209768.0034137,
+      "kind": "REMNANT_RACKED",
+      "addr": "10.2.2.1",
+      "profile": "EXT-240-OPEN",
+      "long_in": 74.25,
+      "guaranteed_in": 74.25,
+      "origin": "legacy"
+    },
+    {
+      "seq": 3,
+      "ts": 1793209768.0034204,
+      "kind": "ADOPTED",
+      "addr": "10.2.2.1",
+      "profile": "EXT-240-OPEN",
+      "length_in": 74.25
+    },
+    {
+      "seq": 4,
+      "ts": 1793217680.7465432,
+      "kind": "INTAKE",
+      "job_id": "JOB-261028-1501",
+      "ready": false
+    }
+  ],
+  "raw_usage": [],
+  "on_order": [],
+  "intakes": {
+    "JOB-261028-1501": {
+      "ts": 1793217680.7465305,
+      "package": {
+        "job_id": "JOB-261028-1501",
+        "customer_name": "",
+        "site_photos": [],
+        "width_in": null,
+        "proj_in": null,
+        "house_h_in": null,
+        "front_h_in": null,
+        "substrate": "unknown",
+        "door_swing_detected": null,
+        "door_clearance_confirmed": null,
+        "obstacles_declared": [],
+        "acknowledged_obstacles": [],
+        "obstacles_checked": null
+      },
+      "report": {
+        "job_id": "JOB-261028-1501",
+        "is_ready_for_engineering": false,
+        "confidence_score": 0.0,
+        "detected_substrate": "unknown",
+        "missing_items": [
+          {
+            "gate": "GE_1",
+            "field_key": "width_in",
+            "severity": "critical_blocker",
+            "title": "Overall width is missing",
+            "instructions_for_rep": "Tape the full width along the house wall, outside edge to outside edge. Enter inches.",
+            "requires_photo": false,
+            "input_type": "number",
+            "choices": []
+          },
+          {
+            "gate": "GE_1",
+            "field_key": "proj_in",
+            "severity": "critical_blocker",
+            "title": "Projection (house wall to front posts) is missing",
+            "instructions_for_rep": "Tape from the house wall straight out to where the front posts will stand. Enter inches.",
+            "requires_photo": false,
+            "input_type": "number",
+            "choices": []
+          },
+          {
+            "gate": "GE_1",
+            "field_key": "house_h_in",
+            "severity": "critical_blocker",
+            "title": "Height at the house wall is missing",
+            "instructions_for_rep": "Measure slab/floor up to the eave or fascia where the roof will tie in. Enter inches.",
+            "requires_photo": false,
+            "input_type": "number",
+            "choices": []
+          },
+          {
+            "gate": "GE_1",
+            "field_key": "front_h_in",
+            "severity": "critical_blocker",
+            "title": "Height at the front (outboard) line is missing",
+            "instructions_for_rep": "Measure slab/floor up to the underside of the roof at the front posts. Enter inches.",
+            "requires_photo": false,
+            "input_type": "number",
+            "choices": []
+          },
+          {
+            "gate": "GE_2",
+            "field_key": "substrate",
+            "severity": "critical_blocker",
+            "title": "What is the roof tying into?",
+            "instructions_for_rep": "Pick the wall/eave material at the attachment line.",
+            "requires_photo": false,
+            "input_type": "choice",
+            "choices": [
+              "fascia",
+              "brick",
+              "soffit_overhang",
+              "concrete_block",
+              "siding_vinyl",
+              "siding_wood"
+            ]
+          },
+          {
+            "gate": "GE_2",
+            "field_key": "photo.tie_in_closeup",
+            "severity": "critical_blocker",
+            "title": "Tie-in close-up photo is missing",
+            "instructions_for_rep": "Close-up of the exact attachment line: eave/fascia edge, wall surface and any trim, from 3-4 ft away, in focus.",
+            "requires_photo": true,
+            "input_type": "photo",
+            "choices": []
+          },
+          {
+            "gate": "GE_2",
+            "field_key": "photo.wide_context",
+            "severity": "field_verify",
+            "title": "Add a wide shot of the whole patio",
+            "instructions_for_rep": "Stand back far enough to show the house wall, the slab and the yard edge.",
+            "requires_photo": true,
+            "input_type": "photo",
+            "choices": []
+          },
+          {
+            "gate": "GE_2",
+            "field_key": "photo.sketch",
+            "severity": "field_verify",
+            "title": "Add a photo of your sketch",
+            "instructions_for_rep": "Dimensions and post locations marked on a sketch, photographed flat.",
+            "requires_photo": true,
+            "input_type": "photo",
+            "choices": []
+          },
+          {
+            "gate": "GE_3",
+            "field_key": "door_swing_detected",
+            "severity": "critical_blocker",
+            "title": "Does any exterior door swing OUT into the room?",
+            "instructions_for_rep": "Check every door opening onto the footprint, including the garage side door.",
+            "requires_photo": false,
+            "input_type": "choice",
+            "choices": [
+              "yes",
+              "no"
+            ]
+          },
+          {
+            "gate": "GE_3",
+            "field_key": "obstacles_checked",
+            "severity": "field_verify",
+            "title": "Walk the perimeter: any downspouts, steps or meters?",
+            "instructions_for_rep": "Tap yes once you have checked every wall and corner.",
+            "requires_photo": false,
+            "input_type": "choice",
+            "choices": [
+              "yes",
+              "no"
+            ]
+          }
+        ],
+        "detected_obstacles": [],
+        "pitch_per_foot_in": null,
+        "pitch_deg": null,
+        "verdicts": [
+          {
+            "ok": false,
+            "gate": "GE_1",
+            "code": "MISSING_DIMENSION",
+            "message": "4 blocker(s): width_in, proj_in, house_h_in, front_h_in"
+          },
+          {
+            "ok": false,
+            "gate": "GE_2",
+            "code": "UNKNOWN_SUBSTRATE",
+            "message": "2 blocker(s): substrate, photo.tie_in_closeup"
+          },
+          {
+            "ok": false,
+            "gate": "GE_3",
+            "code": "DOOR_SWING_UNVERIFIED",
+            "message": "1 blocker(s): door_swing_detected"
+          }
+        ]
+      }
+    }
+  }
+}

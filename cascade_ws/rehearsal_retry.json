@@ -1,0 +1,5 @@
+[
+  "Sure! You should set velocity to a vector.",
+  "{\"frame_id\":\"0x0001\",\"target\":\"%Player\",\"stmt\":\"velocity = Vector2(0.0, -450.0)\"}",
+  "{\"frame_id\":\"0x0001\",\"target\":\"%Player\",\"stmt\":\"velocity = Vector2(0.0, -400.0)\"}"
+]

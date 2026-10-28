@@ -1,0 +1,1 @@
+{"intent": "when the player has left the scene, print 'gone'", "node": "%Player", "assumptions": ["'has left the scene' = the tree_exited signal"], "steps": [{"do": "when", "signal": "tree_exited", "then": {"print": "gone"}}]}

@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""registry_builder.py - Project Cascade, Step 3.
+Reads a Godot 4 project and writes state_registry.json: one record per node that has a unique name (%Name).
+
+  python3 registry_builder.py                 build ~/cascade_ws/state_registry.json from ~/cascade_ws/engine_test
+  python3 registry_builder.py --dry           show what would change, write nothing
+  python3 registry_builder.py --ws DIR --project DIR --godot /path/to/godot
+
+Everything about a node comes from Godot itself (class, scene, tree path, property types) and from the uid in
+the scene file's header. Nothing is invented. If a scene has no uid the builder stops.
+Addresses: topology.json pins names to addresses and sets the default subnet; known nodes keep their address
+(matched by uid + name, so moving a file does not change it); new nodes get the next free one.
+Files it creates if missing: topology.json, props_allow.json. If rag_record_spec.json is in the workspace,
+every record is checked against it and nothing is written when a record fails.
+"""
+import argparse, json, os, re, subprocess, sys, tempfile
+
+PEERING = {"pub_sub": "signals_upward", "multicast": "call_group", "ixp": "/root/InterconnectBus"}
+EXCLUDE = ["KinematicBody2D", "../../"]
+DEFAULT_TOPOLOGY = {"default_subnet": "10.1.1.0/24", "first_host": 10, "pins": {"%Player": "10.1.1.10"}}
+DEFAULT_ALLOW = {"CharacterBody2D": ["velocity"]}
+
+HELPER = r'''extends SceneTree
+
+const ALLOWED := [TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_VECTOR2, TYPE_VECTOR3, TYPE_COLOR]
+const TYPE_NAMES := {
+    TYPE_BOOL: "bool", TYPE_INT: "int", TYPE_FLOAT: "float", TYPE_STRING: "String",
+    TYPE_VECTOR2: "Vector2", TYPE_VECTOR3: "Vector3", TYPE_COLOR: "Color",
+}
+
+func _init() -> void:
+    var args: PackedStringArray = OS.get_cmdline_user_args()
+    var allow: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(args[1]))
+    var scenes: Array = []
+    _find_scenes("res://", scenes)
+    scenes.sort()
+    var hosts: Array = []
+    for path in scenes:
+        var packed: PackedScene = load(path)
+        if packed == null:
+            continue
+        var root: Node = packed.instantiate()
+        _walk(root, root, path, hosts, allow)
+        root.free()
+    var f := FileAccess.open(args[0], FileAccess.WRITE)
+    f.store_string(JSON.stringify({"hosts": hosts, "godot": Engine.get_version_info()["string"]}))
+    f.close()
+    quit()
+
+func _find_scenes(dir_path: String, out: Array) -> void:
+    var d := DirAccess.open(dir_path)
+    if d == null:
+        return
+    for sub in d.get_directories():
+        if not sub.begins_with("."):
+            _find_scenes(dir_path.path_join(sub), out)
+    for file in d.get_files():
+        if file.ends_with(".tscn"):
+            out.append(dir_path.path_join(file))
+
+func _walk(n: Node, root: Node, scene_path: String, hosts: Array, allow: Dictionary) -> void:
+    if n != root and n.unique_name_in_owner and n.owner == root:
+        hosts.append(_describe(n, root, scene_path, allow))
+    for c in n.get_children():
+        _walk(c, root, scene_path, hosts, allow)
+
+func _describe(n: Node, root: Node, scene_path: String, allow: Dictionary) -> Dictionary:
+    var cls: String = n.get_class()
+    var allowed_names: Array = []
+    var c: String = cls
+    while c != "":
+        if allow.has(c):
+            allowed_names.append_array(allow[c])
+        c = ClassDB.get_parent_class(c)
+    var props := {}
+    for p in n.get_property_list():
+        var t: int = int(p["type"])
+        if not ALLOWED.has(t):
+            continue
+        var usage: int = int(p["usage"])
+        var exported: bool = (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0 and (usage & PROPERTY_USAGE_EDITOR) != 0
+        if exported or allowed_names.has(p["name"]):
+            props[p["name"]] = TYPE_NAMES[t]
+    var own_scene: String = n.scene_file_path if n.scene_file_path != "" else scene_path
+    return {
+        "name": "%" + str(n.name), "node": cls, "scene": own_scene, "owner_scene": scene_path,
+        "tree": str(root.name) + "/" + str(root.get_path_to(n)), "props": props,
+    }
+'''
+
+def die(msg):
+    sys.exit("STOPPED: " + msg)
+
+def load_json(path, default=None):
+    if os.path.exists(path):
+        return json.load(open(path, encoding="utf-8"))
+    return default
+
+def read_uid(project, res_path):
+    fp = os.path.join(project, res_path[len("res://"):])
+    if not os.path.exists(fp):
+        return None
+    m = re.search(r'^\[gd_scene[^\]]*\suid="(uid://[a-z0-9]+)"', open(fp, encoding="utf-8").read(), re.M)
+    return m.group(1) if m else None
+
+def run_godot(godot, args):
+    try:
+        return subprocess.run([godot, "--headless"] + args, capture_output=True, text=True, timeout=300)
+    except FileNotFoundError:
+        die(f"Godot not found as '{godot}'. Use --godot /path/to/godot or: export GODOT=/path/to/godot")
+
+def ip_key(a):
+    return tuple(int(x) for x in a.split("."))
+
+def assign(hosts, topo, prev):
+    subnet = topo["default_subnet"]
+    if not re.match(r"^10\.\d{1,3}\.\d{1,3}\.0/24$", subnet):
+        die("topology.json default_subnet must look like 10.1.1.0/24")
+    base = subnet.split("/")[0].rsplit(".", 1)[0]
+    pins = topo.get("pins", {})
+    names = {}
+    for h in hosts:
+        if h["name"] in names:
+            die(f"name conflict: {h['name']} is unique in both {names[h['name']]} and {h['owner_scene']} "
+                f"(both would sit in {subnet})")
+        names[h["name"]] = h["owner_scene"]
+    prevmap = {(r["uid"], r["name"]): a for a, r in (prev or {}).get("hosts", {}).items()}
+    taken, addr_of = {}, {}
+    for h in hosts:                                   # 1) pins
+        a = pins.get(h["name"])
+        if a:
+            if not a.startswith(base + "."):
+                die(f"pin {h['name']} -> {a} is outside {subnet}")
+            if a in taken:
+                die(f"address conflict: {a} pinned for both {taken[a]} and {h['name']}")
+            taken[a] = h["name"]; addr_of[h["name"]] = a
+    for h in hosts:                                   # 2) known nodes keep their address
+        if h["name"] in addr_of:
+            continue
+        a = prevmap.get((h["uid"], h["name"]))
+        if a and a not in taken:
+            taken[a] = h["name"]; addr_of[h["name"]] = a
+    nxt = int(topo.get("first_host", 10))
+    for h in hosts:                                   # 3) new nodes get the next free address
+        if h["name"] in addr_of:
+            continue
+        while f"{base}.{nxt}" in taken:
+            nxt += 1
+        a = f"{base}.{nxt}"; taken[a] = h["name"]; addr_of[h["name"]] = a
+    return subnet, addr_of
+
+def validate(rec, spec):
+    s, bad = spec["slots"], []
+    for k in ("addr", "subnet", "uid", "name"):
+        if not re.match(s[k]["rx"], rec[k]):
+            bad.append(f"{k} '{rec[k]}' does not match the spec")
+    if rec["node"] in s["node"].get("deny", []):
+        bad.append(f"node {rec['node']} is denied by the spec")
+    for p, t in rec["props"].items():
+        if t not in s["props"]["value"]["enum"]:
+            bad.append(f"prop {p}: type {t} not allowed")
+    for k, v in s["peering"]["slots"].items():
+        if rec["peering"].get(k) not in v["enum"]:
+            bad.append(f"peering {k} not allowed")
+    for e in rec["exclude"]:
+        if e not in s["exclude"]["enum"]:
+            bad.append(f"exclude '{e}' not allowed")
+    return bad
+
+def main():
+    ap = argparse.ArgumentParser(description="Build state_registry.json from a Godot 4 project")
+    ap.add_argument("--ws", default=os.path.expanduser("~/cascade_ws"))
+    ap.add_argument("--project")
+    ap.add_argument("--godot", default=os.environ.get("GODOT", "godot"))
+    ap.add_argument("--dry", action="store_true")
+    a = ap.parse_args()
+    ws = os.path.abspath(os.path.expanduser(a.ws))
+    project = os.path.abspath(os.path.expanduser(a.project)) if a.project else os.path.join(ws, "engine_test")
+    out_path = os.path.join(ws, "state_registry.json")
+    topo_path, allow_path, spec_path = (os.path.join(ws, n) for n in ("topology.json", "props_allow.json", "rag_record_spec.json"))
+    if not os.path.exists(os.path.join(project, "project.godot")):
+        die(f"no project.godot in {project}")
+    for path, default in ((topo_path, DEFAULT_TOPOLOGY), (allow_path, DEFAULT_ALLOW)):
+        if not os.path.exists(path):
+            json.dump(default, open(path, "w"), indent=2); print(f"created {path}")
+    topo, spec, prev = load_json(topo_path), load_json(spec_path), load_json(out_path)
+    if spec is None:
+        print(f"note: {spec_path} not found - records are NOT checked against the spec")
+
+    if not os.path.isdir(os.path.join(project, ".godot")):
+        print("no .godot cache yet - running the first import ...")
+        r = run_godot(a.godot, ["--path", project, "--import"])
+        if r.returncode != 0:
+            die("import failed:\n" + (r.stdout + r.stderr)[-1500:])
+    tmp = tempfile.mkdtemp(prefix="cascade_")
+    helper, dump = os.path.join(tmp, "dump.gd"), os.path.join(tmp, "dump.json")
+    open(helper, "w").write(HELPER)
+    r = run_godot(a.godot, ["--path", project, "--script", helper, "--", dump, allow_path])
+    if r.returncode != 0 or not os.path.exists(dump):
+        die("Godot could not read the project:\n" + (r.stdout + r.stderr)[-1500:])
+    data = json.load(open(dump)); hosts = data["hosts"]
+    print(f"Godot {data['godot']}: {len(hosts)} node(s) with a unique name")
+
+    for h in hosts:
+        h["uid"] = read_uid(project, h["scene"])
+        if not h["uid"]:
+            die(f"{h['scene']} has no uid in its header, so {h['name']} has no identity. Open the project in the "
+                f"Godot editor and save that scene once, then run this again.")
+    subnet, addr_of = assign(hosts, topo, prev)
+    reg = {"version": 1, "hosts": {}}
+    problems = []
+    for h in sorted(hosts, key=lambda x: ip_key(addr_of[x["name"]])):
+        rec = {"addr": addr_of[h["name"]], "subnet": subnet, "uid": h["uid"], "node": h["node"], "name": h["name"],
+               "scene": h["scene"], "owner_scene": h["owner_scene"], "tree": h["tree"], "props": h["props"],
+               "peering": PEERING, "exclude": EXCLUDE}
+        if spec:
+            problems += [f"{rec['addr']} {rec['name']}: {p}" for p in validate(rec, spec)]
+        reg["hosts"][rec["addr"]] = rec
+    if problems:
+        die("records fail rag_record_spec.json, nothing written:\n  " + "\n  ".join(problems))
+
+    old = (prev or {}).get("hosts", {})
+    for addr, r in reg["hosts"].items():
+        state = "new" if addr not in old else ("unchanged" if old[addr] == r else "changed")
+        props = ", ".join(f"{k}:{v}" for k, v in r["props"].items()) or "-"
+        print(f"  {addr:<12}{r['name']:<12}{r['node']:<18}{r['uid']:<22}{props}   [{state}]")
+    for addr, r in old.items():
+        if addr not in reg["hosts"]:
+            print(f"  {addr:<12}{r['name']:<12}removed (no longer in the project)")
+    if a.dry:
+        print("--dry: nothing written."); return
+    tmp_out = out_path + ".tmp"
+    json.dump(reg, open(tmp_out, "w"), indent=2); os.replace(tmp_out, out_path)
+    print(f"wrote {out_path}")
+
+if __name__ == "__main__":
+    main()

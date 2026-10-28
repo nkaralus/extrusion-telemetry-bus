@@ -1,0 +1,23 @@
+{
+  "plan_id": "p0008",
+  "intent": "when the player is renamed, raise its speed by 25, double its velocity, lower the speed by 5, and print boosted",
+  "state": "failed",
+  "undone": false,
+  "created": "2026-10-21 13:45:19",
+  "files": {
+    "res://scripts/player.gd": {
+      "pre": "9c1075d44b14940d70f78a2a7df3ba7b",
+      "post": "9c1075d44b14940d70f78a2a7df3ba7b"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6009",
+      "op": "add_method",
+      "status": "DLQ",
+      "tries": 5,
+      "file": null,
+      "backup": null
+    }
+  ]
+}

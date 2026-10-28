@@ -351,6 +351,22 @@ class FabricationBus:
         return AckResult(result=result, commit=commit, next_step=nxt, next_guard=frame.guard if nxt else None,
                          frame_phase=frame.phase.value, elapsed_ms=round((time.perf_counter() - t0) * 1000, 3))
 
+    def flip_current(self, frame: Frame, station: Optional[str] = None) -> Optional[Slot3Execute]:
+        """FLIP_MITER (key 2): turn the staged piece over and re-source it.
+
+        Every long point moves to the other face, the old reservation is released, and the
+        next cut is staged against the flipped spec (it may pick different stock).
+        """
+        cur = frame.current
+        if frame.phase != FramePhase.ACTIVE or cur is None:
+            raise RuntimeError("no staged cut to flip")
+        flipped = frame.pending[0].flipped()      # ValueError for a square cut
+        self.reg.unlock(cur.source_addr)
+        frame.pending[0] = flipped
+        frame.current = None
+        frame.excluded = []
+        return self.stage_next_cut(frame, station)
+
     def release(self, frame: Frame) -> None:
         """Abandon a frame: free any reservation it still holds."""
         if frame.current is not None:

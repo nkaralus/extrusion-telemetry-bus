@@ -1,0 +1,7 @@
+{
+  "intent": "place a solid wall at 600, 0 to block the player",
+  "node": "%Player",
+  "steps": [
+    {"do": "add_wall", "name": "Wall", "at": [600, 0], "size": [32, 256]}
+  ]
+}

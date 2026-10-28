@@ -1,0 +1,10 @@
+{
+  "CharacterBody2D": [
+    "velocity"
+  ],
+  "Timer": [
+    "wait_time",
+    "autostart",
+    "one_shot"
+  ]
+}

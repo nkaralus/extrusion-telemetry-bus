@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "note": "Editable. The harness reads phrases from here; the registry decides which signals are usable. 'group' says how the behavior check sees the signal: enter = fires by itself when the node enters the tree, leave = fires by itself when it leaves, never = it never fires by itself so the check emits it. 'repeats' is true for signals that can fire many times in one life (a relative change on them compounds); unknown signals count as repeating.",
+  "signals": {
+    "tree_entered": {
+      "group": "enter",
+      "fires": "by itself when the node enters the tree",
+      "phrases": [
+        "enters the scene",
+        "enters the tree",
+        "is added to the scene",
+        "spawns",
+        "appears in the scene"
+      ],
+      "repeats": false
+    },
+    "ready": {
+      "group": "enter",
+      "fires": "by itself, once, when the node is ready (right after it enters the tree)",
+      "phrases": [
+        "is ready",
+        "starts",
+        "begins",
+        "starts up"
+      ],
+      "repeats": false
+    },
+    "visibility_changed": {
+      "group": "enter",
+      "fires": "by itself when it enters the tree, and whenever its visibility changes",
+      "phrases": [
+        "becomes visible or hidden",
+        "visibility changes",
+        "is shown or hidden"
+      ],
+      "repeats": true
+    },
+    "draw": {
+      "group": "enter",
+      "fires": "by itself each time it is drawn (it repeats on every redraw)",
+      "phrases": [
+        "is drawn",
+        "gets redrawn"
+      ],
+      "repeats": true
+    },
+    "tree_exiting": {
+      "group": "leave",
+      "fires": "by itself when the node is about to leave the tree",
+      "phrases": [
+        "leaves the scene",
+        "leaves the tree",
+        "is removed",
+        "exits the scene",
+        "despawns",
+        "quits",
+        "is about to leave"
+      ],
+      "repeats": false
+    },
+    "tree_exited": {
+      "group": "leave",
+      "fires": "by itself right after the node has left the tree",
+      "phrases": [
+        "has left the scene",
+        "is gone",
+        "has been removed"
+      ],
+      "repeats": false
+    },
+    "hidden": {
+      "group": "never",
+      "fires": "never by itself in this scene (the behavior check emits it)",
+      "phrases": [
+        "is hidden",
+        "hides",
+        "becomes hidden"
+      ],
+      "repeats": true
+    },
+    "renamed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "is renamed",
+        "gets a new name"
+      ],
+      "repeats": true
+    },
+    "script_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "gets a different script"
+      ],
+      "repeats": true
+    },
+    "child_order_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its children are reordered"
+      ],
+      "repeats": true
+    },
+    "item_rect_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its rectangle changes"
+      ],
+      "repeats": true
+    },
+    "property_list_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its property list changes"
+      ],
+      "repeats": true
+    },
+    "mouse_entered": {
+      "group": "never",
+      "fires": "never by itself in a headless run (the behavior check emits it)",
+      "phrases": [
+        "the mouse enters it"
+      ],
+      "repeats": true
+    },
+    "mouse_exited": {
+      "group": "never",
+      "fires": "never by itself in a headless run (the behavior check emits it)",
+      "phrases": [
+        "the mouse leaves it"
+      ],
+      "repeats": true
+    },
+    "timeout": {
+      "group": "never",
+      "fires": "when a Timer runs out; it fires by itself only if the Timer starts (autostart on, which the 'after' step sets); otherwise the behavior check emits it",
+      "phrases": [
+        "the timer runs out",
+        "the timer fires",
+        "the timer goes off",
+        "the timer finishes",
+        "the timer times out"
+      ],
+      "repeats": true
+    }
+  },
+  "steps": [
+    "when:         {\"do\": \"when\", \"signal\": \"tree_entered\", \"then\": {\"set\": {\"property\": \"speed\", \"value\": 450.0}}}   (a handler plus its connection)",
+    "              then is ONE form  {\"set\": {\"property\": P, \"value\": V}}  {\"increase\"|\"decrease\"|\"scale\": {\"property\": P, \"by\": V}}  {\"print\": \"message\"}  {\"nothing\": true}",
+    "              or a LIST of 1 to 6 of those forms, run in order: \"then\": [{\"set\": {\"property\": \"speed\", \"value\": 450.0}}, {\"print\": \"ready\"}]   (nothing alone in a list; = at most once per property; the net effect on each property must not be zero)",
+    "              or  {\"increase\": {\"property\": \"speed\", \"by\": 50.0}}  {\"decrease\": {\"property\": \"speed\", \"by\": 10.0}}  {\"scale\": {\"property\": \"velocity\", \"by\": 2.0}}   (+=, -=, *= on float, int, Vector2, Vector3 properties)",
+    "set_property: {\"do\": \"set_property\", \"property\": \"velocity\", \"value\": [0.0, -400.0]}   (the starting value stored in the scene)",
+    "add_function: {\"do\": \"add_function\", \"name\": \"reset_speed\", \"then\": {\"set\": {\"property\": \"speed\", \"value\": 300.0}}}   (a function, not connected)",
+    "connect:      {\"do\": \"connect\", \"signal\": \"hidden\", \"handler\": \"_on_player_hidden\"}   (to a handler that already exists)",
+    "change_handler: {\"do\": \"change_handler\", \"handler\": \"_on_player_tree_entered\", \"then\": [{\"set\": {\"property\": \"speed\", \"value\": 450.0}}, {\"print\": \"ready\"}]}   (replaces the WHOLE body of a [replaceable] handler; its connections stay; the dry run shows what is discarded)",
+    "when ... from: {\"do\": \"when\", \"from\": \"%Timer\", \"signal\": \"timeout\", \"then\": {\"set\": {\"property\": \"speed\", \"value\": 600.0}}}   (a signal of ANOTHER node runs a new handler on the plan's node; the handler is named _on_<emitter>_<signal> and lives on the plan's node, so \"node\" is the receiver)",
+    "connect ... from: {\"do\": \"connect\", \"from\": \"%Timer\", \"signal\": \"timeout\", \"handler\": \"_on_timer_timeout\"}   (connect another node's signal to a handler that already exists on the plan's node; the handler must be named _on_<emitter>_<signal>)",
+    "after:        {\"do\": \"after\", \"seconds\": 2.0, \"then\": [{\"set\": {\"property\": \"speed\", \"value\": 600.0}}, {\"print\": \"go\"}]}   (a one-shot %Timer counts the seconds from the moment the scene loads, then the handler _on_timer_timeout on the plan's node runs once; \"timer\" names the Timer if there are several; if that handler already exists its whole body is replaced)",
+    "node:         any step may carry \"node\": \"%Timer\" to act on another node than the plan's: {\"do\": \"set_property\", \"node\": \"%Timer\", \"property\": \"wait_time\", \"value\": 3.0}   (a Timer's settable properties are wait_time (0.05 to 3600), one_shot, autostart)"
+  ],
+  "values": "float 450.0 (always with a decimal point) | int 7 | bool true/false | String plain text up to 40 characters (letters, digits, space and _ . , : ! ? -) | Vector2 [x, y] | Vector3 [x, y, z] | Color [r, g, b, a] | 'by': a float for float properties, an int for int properties, the same vector for increase/decrease on Vector2/Vector3, a float for scale on a vector; never 0 for increase/decrease or 1 for scale",
+  "supported_intents": [
+    "when <event>, do one thing or several things in order (set, increase / decrease, scale, print, nothing)",
+    "change what an existing handler does: replace the whole body of a [replaceable] _on_ handler with one or several statements",
+    "set <property> to <literal> in the scene",
+    "add a function that does one or several things",
+    "connect <event> to an existing handler",
+    "when <event of another node> (from), do one thing or several things on the plan's node; the CROSS-NODE section of the catalog lists the pairs",
+    "after <N seconds>, do one thing or several things on the plan's node (a Timer starts when the scene loads and fires once)",
+    "set a property of another node (a Timer's wait_time, one_shot or autostart) with set_property and \"node\""
+  ],
+  "refusals": [
+    "values that come from other properties or expressions: set speed to health plus 10 (a number is fixed when the plan is written)",
+    "division, and relative changes on bool, String or Color properties",
+    "more than 6 statements in one handler, or if / for / while / other control flow",
+    "handlers with arguments, and signals that carry arguments",
+    "editing one line of a handler: a change replaces the whole body (say all of it)",
+    "replacing engine callbacks (_physics_process, _ready ...), functions with arguments, or deleting a handler",
+    "a property, signal or node that is not in the catalog",
+    "adding, removing or renaming nodes, spawning or instancing scenes, input, and nodes in another scene",
+    "repeating timers ('every N seconds'): a relative change on a repeating signal compounds; offer 'after' (once) or an absolute value",
+    "starting or stopping a Timer in the middle of the game, and a wait over 3600 seconds or under 0.05",
+    "a statement inside a handler changes only the node that owns the handler; to change another node's property use a set_property step with \"node\""
+  ]
+}

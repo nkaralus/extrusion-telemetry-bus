@@ -1,0 +1,7 @@
+{
+  "intent": "give the player a visible sprite",
+  "node": "%Player",
+  "steps": [
+    {"do": "add_sprite", "name": "PlayerSprite", "texture": "res://sprites/player.png"}
+  ]
+}

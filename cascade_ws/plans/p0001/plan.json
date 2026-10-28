@@ -1,0 +1,60 @@
+{
+  "plan_id": "p0001",
+  "created": "2026-10-21 10:46:28",
+  "plan": {
+    "intent": "when the player has left the scene, print 'gone'",
+    "node": "%Player",
+    "assumptions": [
+      "'has left the scene' = the tree_exited signal"
+    ],
+    "steps": [
+      {
+        "do": "when",
+        "signal": "tree_exited",
+        "then": {
+          "print": "gone"
+        }
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6000",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_player_tree_exited",
+      "args": [],
+      "returns": "void",
+      "body": "print",
+      "message": "gone",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    },
+    {
+      "frame_id": "0x6001",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "connect_signal",
+      "source": "%Player",
+      "target": "%Player",
+      "signal": "tree_exited",
+      "method": "_on_player_tree_exited",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "connect_3arg",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"frame_id": "0x101A", "time_slot": "SLOT_3_EXECUTE", "subnet": "10.1.1.0/24", "op": "modify_property", "target": "%Player", "property": "speed", "type": "float", "value": 204.0, "ref": "10.1.1.10", "exclude": ["KinematicBody2D", "untyped_variables", "relative_paths_up_tree", "cross_subnet_queries"]}

@@ -1,0 +1,121 @@
+{
+  "spec": "rag_record",
+  "version": 1,
+  "engine": "godot4",
+  "who_sees": "mule",
+  "language": "none",
+  "slots": {
+    "addr": {
+      "type": "string",
+      "rx": "^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"
+    },
+    "subnet": {
+      "type": "string",
+      "rx": "^10\\.\\d{1,3}\\.\\d{1,3}\\.0/(16|24)$"
+    },
+    "uid": {
+      "type": "string",
+      "rx": "^uid://[a-z0-9]+$",
+      "source": "godot_project_files",
+      "invent": false
+    },
+    "node": {
+      "type": "string",
+      "enum_from": "godot4_class_names",
+      "deny": [
+        "KinematicBody2D",
+        "KinematicBody",
+        "Spatial"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "rx": "^%[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "props": {
+      "type": "map",
+      "key": "string",
+      "value": {
+        "type": "string",
+        "enum": [
+          "bool",
+          "int",
+          "float",
+          "String",
+          "Vector2",
+          "Vector3",
+          "Color"
+        ]
+      }
+    },
+    "peering": {
+      "type": "object",
+      "slots": {
+        "pub_sub": {
+          "enum": [
+            "signals_upward"
+          ]
+        },
+        "multicast": {
+          "enum": [
+            "call_group"
+          ]
+        },
+        "ixp": {
+          "enum": [
+            "/root/InterconnectBus"
+          ]
+        }
+      }
+    },
+    "exclude": {
+      "type": "array",
+      "items": "string",
+      "enum": [
+        "KinematicBody2D",
+        "Spatial",
+        "yield",
+        "onready_var",
+        "export_var",
+        "setget",
+        "connect_3arg",
+        "instance_call",
+        "rand_range",
+        "move_and_slide_args",
+        "OS_ticks",
+        "File_Directory",
+        "Pool_arrays",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries",
+        "../../"
+      ]
+    },
+    "signals": {
+      "type": "array",
+      "items": "string",
+      "item_rx": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "source": "godot_class_db_and_script"
+    },
+    "methods": {
+      "type": "array",
+      "items": "string",
+      "item_rx": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "source": "godot_script"
+    }
+  },
+  "lookup": {
+    "by": [
+      "addr",
+      "name",
+      "uid"
+    ],
+    "returns": "one_record",
+    "never_returns": "prose"
+  },
+  "resolve": {
+    "name_to_path": "state_registry.json",
+    "uid_is_identity": true,
+    "path_may_change": true
+  }
+}

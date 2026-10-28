@@ -101,6 +101,9 @@ def default_profiles() -> List[Profile]:
         Profile(part_number="EXT-220-OPEN", description="2x2 Open Screen Extrusion",
                 width_in=2.0, depth_in=2.0, lb_per_ft=0.62, bay_color="BLUE", cost_per_ft=2.35,
                 aliases=["2x2", "2 x 2", "upright", "post"]),
+        Profile(part_number="EXT-220-BOX", description="2x2 box tube post",
+                width_in=2.0, depth_in=2.0, key_feature=None, alloy="6061-T6",
+                lb_per_ft=0.95, cost_per_ft=3.60, bay_color="GREEN", aliases=["2x2 box tube"]),
         Profile(part_number="EXT-HW-BOX", description="Heavy-wall structural box tube",
                 width_in=3.0, depth_in=3.0, key_feature=None, alloy="6061-T6",
                 lb_per_ft=2.4, bay_color="GREEN", cost_per_ft=7.80, aliases=["box tube", "heavy wall"]),
@@ -175,6 +178,7 @@ class RegistryState(BaseModel):
     journal: List[dict] = Field(default_factory=list)
     raw_usage: List[dict] = Field(default_factory=list)   # virgin pulls: {ts, profile, length_in}
     on_order: List[dict] = Field(default_factory=list)    # open vendor orders
+    intakes: Dict[str, dict] = Field(default_factory=dict)  # latest sales intake + readiness per job
 
 
 def rack_slot(profile: Profile, guaranteed_in: float) -> str:
@@ -222,7 +226,13 @@ class Registry:
     def load(cls, path: os.PathLike, clock: Callable[[], float] = time.time) -> "Registry":
         p = Path(path)
         if p.exists():
-            return cls(RegistryState.model_validate_json(p.read_text()), path=p, clock=clock)
+            reg = cls(RegistryState.model_validate_json(p.read_text()), path=p, clock=clock)
+            missing = [d for d in default_profiles() if d.part_number not in reg.state.profiles]
+            if missing:  # registry written by an older release: backfill new catalog entries
+                with reg.transaction():
+                    for d in missing:
+                        reg.state.profiles[d.part_number] = d
+            return reg
         reg = cls(path=p, clock=clock)
         reg.save()
         return reg
@@ -485,6 +495,13 @@ class Registry:
 
     def scrap_total_lb(self) -> float:
         return round(sum(e.weight_lb for e in self.state.scrap_ledger), 3)
+
+    def save_intake(self, job_id: str, package: dict, report: dict) -> None:
+        with self.transaction():
+            rec = self.state.intakes.get(job_id, {})
+            rec.update({"ts": self.clock(), "package": package, "report": report})
+            self.state.intakes[job_id] = rec
+            self.log("INTAKE", job_id=job_id, ready=report.get("is_ready_for_engineering"))
 
     def push_dlq(self, **entry) -> None:
         with self.transaction():

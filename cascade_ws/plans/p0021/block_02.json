@@ -1,0 +1,1 @@
+{"frame_id": "0x6035", "time_slot": "SLOT_3_EXECUTE", "subnet": "10.1.1.0/24", "op": "connect_signal", "source": "%Timer", "target": "%Player", "signal": "timeout", "method": "_on_timer_timeout", "ref": "10.1.1.10", "exclude": ["KinematicBody2D", "connect_3arg", "untyped_variables", "relative_paths_up_tree", "cross_subnet_queries"]}

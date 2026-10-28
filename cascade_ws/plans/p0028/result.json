@@ -1,0 +1,24 @@
+{
+  "plan_id": "p0028",
+  "intent": "place a solid wall at 600, 0 to block the player",
+  "state": "applied",
+  "undone": true,
+  "created": "2026-10-22 19:05:33",
+  "files": {
+    "res://scenes/main.tscn": {
+      "pre": "2218cb0e8aa1182d823dd26d920d4462",
+      "post": "96e90d190bffd722242b9f93a421edd7"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x604A",
+      "op": "add_wall",
+      "status": "APPLIED",
+      "tries": 0,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x604A.20261022-190533.bak"
+    }
+  ],
+  "undone_at": "2026-10-22 19:06:20"
+}

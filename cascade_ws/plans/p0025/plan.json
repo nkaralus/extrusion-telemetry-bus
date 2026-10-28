@@ -1,0 +1,138 @@
+{
+  "plan_id": "p0025",
+  "created": "2026-10-22 14:08:04",
+  "plan": {
+    "intent": "put a coin at 420, 0 that speeds the player up by 25 when touched, never above 600, and disappears",
+    "node": "%Player",
+    "assumptions": [
+      "'a coin' = an Area2D named Coin, 48 by 48 because no size was given",
+      "'touched' = its body_entered, only when the entering body is the player",
+      "'disappears' = free %Coin as the last statement"
+    ],
+    "steps": [
+      {
+        "do": "add_node",
+        "class": "Area2D",
+        "name": "Coin",
+        "at": [
+          420,
+          0
+        ],
+        "size": [
+          48,
+          48
+        ]
+      },
+      {
+        "do": "when",
+        "from": "%Coin",
+        "signal": "body_entered",
+        "only": "self",
+        "then": [
+          {
+            "increase": {
+              "property": "speed",
+              "by": 25.0
+            }
+          },
+          {
+            "limit": {
+              "property": "speed",
+              "max": 600.0
+            }
+          },
+          {
+            "free": "%Coin"
+          }
+        ]
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6045",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_node",
+      "target": "%Player",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ],
+      "class": "Area2D",
+      "name": "Coin",
+      "parent": ".",
+      "position": [
+        420.0,
+        0.0
+      ],
+      "size": [
+        48.0,
+        48.0
+      ]
+    },
+    {
+      "frame_id": "0x6046",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_coin_body_entered",
+      "args": [
+        "_body: Node2D"
+      ],
+      "returns": "void",
+      "body": [
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "+=",
+          "value": 25.0
+        },
+        {
+          "kind": "limit",
+          "property": "speed",
+          "type": "float",
+          "bound": "max",
+          "value": 600.0
+        },
+        {
+          "kind": "free",
+          "target": "%Coin"
+        }
+      ],
+      "message": "",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ],
+      "guard": "self"
+    },
+    {
+      "frame_id": "0x6047",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "connect_signal",
+      "source": "%Coin",
+      "target": "%Player",
+      "signal": "body_entered",
+      "method": "_on_coin_body_entered",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "connect_3arg",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

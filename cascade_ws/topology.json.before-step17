@@ -1,0 +1,8 @@
+{
+  "default_subnet": "10.1.1.0/24",
+  "first_host": 10,
+  "pins": {
+    "%Player": "10.1.1.10",
+    "%Timer": "10.1.1.11"
+  }
+}

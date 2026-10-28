@@ -1,0 +1,90 @@
+{
+  "plan_id": "p0010",
+  "created": "2026-10-21 14:17:51",
+  "plan": {
+    "intent": "when the player is renamed, raise its speed by 25, lower the speed by 5, double its velocity, and print boosted",
+    "node": "%Player",
+    "assumptions": [
+      "'renamed' = the existing renamed handler, so its body is replaced",
+      "'raise/lower' = += / -= on the float speed, 'double' = *= 2.0 on the Vector2 velocity"
+    ],
+    "steps": [
+      {
+        "do": "change_handler",
+        "handler": "_on_player_renamed",
+        "then": [
+          {
+            "increase": {
+              "property": "speed",
+              "by": 25.0
+            }
+          },
+          {
+            "decrease": {
+              "property": "speed",
+              "by": 5.0
+            }
+          },
+          {
+            "scale": {
+              "property": "velocity",
+              "by": 2.0
+            }
+          },
+          {
+            "print": "boosted"
+          }
+        ]
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x600B",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_player_renamed",
+      "args": [],
+      "returns": "void",
+      "body": [
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "+=",
+          "value": 25.0
+        },
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "-=",
+          "value": 5.0
+        },
+        {
+          "kind": "relative",
+          "property": "velocity",
+          "type": "Vector2",
+          "operator": "*=",
+          "value": 2.0
+        },
+        {
+          "kind": "print",
+          "message": "boosted"
+        }
+      ],
+      "message": "",
+      "mode": "replace",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

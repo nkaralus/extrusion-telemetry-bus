@@ -1,0 +1,68 @@
+{
+  "plan_id": "p0002",
+  "created": "2026-10-21 11:14:38",
+  "plan": {
+    "intent": "when the player's item rect changes, increase its speed by 50",
+    "node": "%Player",
+    "assumptions": [
+      "'item rect changes' = the item_rect_changed signal",
+      "'by 50' = += 50.0 on the float property speed"
+    ],
+    "steps": [
+      {
+        "do": "when",
+        "signal": "item_rect_changed",
+        "then": {
+          "increase": {
+            "property": "speed",
+            "by": 50.0
+          }
+        }
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6002",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_player_item_rect_changed",
+      "args": [],
+      "returns": "void",
+      "body": "assign",
+      "message": "",
+      "property": "speed",
+      "type": "float",
+      "operator": "+=",
+      "value": 50.0,
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    },
+    {
+      "frame_id": "0x6003",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "connect_signal",
+      "source": "%Player",
+      "target": "%Player",
+      "signal": "item_rect_changed",
+      "method": "_on_player_item_rect_changed",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "connect_3arg",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

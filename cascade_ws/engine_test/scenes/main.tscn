@@ -1,0 +1,75 @@
+[gd_scene load_steps=7 format=3 uid="uid://d2bklqgtbb8i4"]
+
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="1_player"]
+[ext_resource type="Texture2D" uid="uid://bmfr64oy54466" path="res://sprites/coin.png" id="5_coinsprite"]
+[ext_resource type="Texture2D" uid="uid://j3ueck6vnyim" path="res://sprites/player.png" id="6_playersprite"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_trigger"]
+size = Vector2(64, 64)
+
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_coin"]
+size = Vector2(48.0, 48.0)
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_wall"]
+size = Vector2(32.0, 256.0)
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" parent="." instance=ExtResource("1_player")]
+unique_name_in_owner = true
+velocity = Vector2(0.0, -400.0)
+
+[node name="Timer" type="Timer" parent="."]
+unique_name_in_owner = true
+wait_time = 2.0
+one_shot = false
+autostart = true
+
+[node name="Trigger" type="Area2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(300, 0)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Trigger"]
+shape = SubResource("RectangleShape2D_trigger")
+
+
+[node name="Coin" type="Area2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(420.0, 0.0)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Coin"]
+shape = SubResource("RectangleShape2D_coin")
+
+[node name="Wall" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(600.0, 0.0)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Wall"]
+shape = SubResource("RectangleShape2D_wall")
+
+[node name="Camera" type="Camera2D" parent="Player"]
+unique_name_in_owner = true
+enabled = true
+zoom = Vector2(1.0, 1.0)
+position_smoothing_enabled = true
+position_smoothing_speed = 5.0
+
+[node name="CoinSprite" type="Sprite2D" parent="Coin"]
+unique_name_in_owner = true
+texture = ExtResource("5_coinsprite")
+
+[node name="PlayerSprite" type="Sprite2D" parent="Player"]
+unique_name_in_owner = true
+texture = ExtResource("6_playersprite")
+
+[connection signal="ready" from="Player" to="Player" method="_on_player_ready"]
+[connection signal="tree_exiting" from="Player" to="Player" method="_on_player_tree_exiting"]
+[connection signal="renamed" from="Player" to="Player" method="_on_player_renamed"]
+[connection signal="tree_entered" from="Player" to="Player" method="_on_player_tree_entered"]
+[connection signal="hidden" from="Player" to="Player" method="_on_player_hidden"]
+[connection signal="visibility_changed" from="Player" to="Player" method="_on_player_visibility_changed"]
+[connection signal="tree_exited" from="Player" to="Player" method="_on_player_tree_exited"]
+[connection signal="item_rect_changed" from="Player" to="Player" method="_on_player_item_rect_changed"]
+[connection signal="timeout" from="Timer" to="Player" method="_on_timer_timeout"]
+[connection signal="body_entered" from="Coin" to="Player" method="_on_coin_body_entered"]

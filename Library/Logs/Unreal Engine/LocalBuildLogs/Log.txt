@@ -1,0 +1,167 @@
+Log started at 10/18/2026 3:33:54 PM (2026-10-18T20:33:54Z)
+Starting AutomationTool...
+Parsing command line: -ScriptsForProject="/home/nick/Documents/Unreal Projects/MyProject/MyProject.uproject" Turnkey -utf8output -WaitForUATMutex -command=VerifySdk -ReportFilename="/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyReport_0.log" -log="/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyLog_0.log" -project="/home/nick/Documents/Unreal Projects/MyProject/MyProject.uproject" -platform=all
+Found project file: /home/nick/Documents/Unreal Projects/MyProject/MyProject.uproject
+Found 1 scripts to execute:
+  Turnkey(utf8output, WaitForUATMutex, command=VerifySdk, ReportFilename=/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyReport_0.log, log=/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyLog_0.log, project=/home/nick/Documents/Unreal Projects/MyProject/MyProject.uproject, platform=all)
+Running on Linux as a 64-bit process.
+CWD=/mnt/ue5_storage/ue5_5.8
+UnrealEngine ver. 5.8.0.0
+Initializing script modules...
+Find 2 directories time: 0.00 s
+Find 27 projects time: 0.23 s
+Total script module initialization time: 0.38 s.
+IsBuildMachine=False
+ShouldKillProcesses=True
+Setting up command environment.
+GetEnvironmentVariable uebp_LOCAL_ROOT=
+GetEnvironmentVariable uebp_LOCAL_ROOT=
+GetEnvironmentVariable uebp_EngineSavedFolder=
+SetEnvVar uebp_EngineSavedFolder=/mnt/ue5_storage/ue5_5.8/Engine/Programs/AutomationTool/Saved
+GetEnvironmentVariable uebp_EngineSavedFolder=/mnt/ue5_storage/ue5_5.8/Engine/Programs/AutomationTool/Saved
+GetEnvironmentVariable uebp_CSVFile=
+GetEnvironmentVariable uebp_LogFolder=/home/nick/Library/Logs/Unreal Engine/LocalBuildLogs
+DeleteDirectoryContents(/home/nick/Library/Logs/Unreal Engine/LocalBuildLogs)
+SafeDeleteFile /home/nick/Library/Logs/Unreal Engine/LocalBuildLogs/Log.json
+SafeDeleteFile /home/nick/Library/Logs/Unreal Engine/LocalBuildLogs/Log.txt
+GetEnvironmentVariable uebp_FinalLogFolder=
+SetEnvVar uebp_FinalLogFolder=/home/nick/Library/Logs/Unreal Engine/LocalBuildLogs
+SetEnvVar MallocNanoZone=0
+GetEnvironmentVariable uebp_UATChildInstance=0
+Using /mnt/ue5_storage/ue5_5.8/Engine/Binaries/ThirdParty/DotNet/10.0/linux-x64/dotnet
+CompilationEvironment.HasCapabilityToCompile=True
+CompilationEvironment.FrameworkMsbuildExe=dotnet msbuild
+CompilationEvironment.DotnetMsbuildExe=/mnt/ue5_storage/ue5_5.8/Engine/Binaries/ThirdParty/DotNet/10.0/linux-x64/dotnet
+Command Environment settings:
+CmdExe=/bin/sh
+EngineSavedFolder=/mnt/ue5_storage/ue5_5.8/Engine/Programs/AutomationTool/Saved
+HasCapabilityToCompile=True
+LocalRoot=/mnt/ue5_storage/ue5_5.8
+LogFolder=/home/nick/Library/Logs/Unreal Engine/LocalBuildLogs
+MountExe=mount.exe
+FrameworkMsbuildExe=dotnet msbuild
+DotnetMsbuildExe=/mnt/ue5_storage/ue5_5.8/Engine/Binaries/ThirdParty/DotNet/10.0/linux-x64/dotnet
+RobocopyExe=robocopy.exe
+TimestampAsString=2026-10-18_15.33.54
+AutomationToolDll=/mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationTool.dll
+
+No project directory provided for project scope BuildConfiguration.xml resolution.
+No config file at /mnt/ue5_storage/ue5_5.8/Engine/Restricted/NotForLicensees/Programs/UnrealBuildTool/BuildConfiguration.xml
+No config file at /usr/share/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml
+No config file at /home/nick/.local/share/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml
+No config file at /home/nick/Documents/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml
+Configuration will be read from:
+  /mnt/ue5_storage/ue5_5.8/Engine/Saved/UnrealBuildTool/BuildConfiguration.xml
+  /home/nick/.config/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml
+Reading configuration file from cache (/mnt/ue5_storage/ue5_5.8/Engine/Intermediate/Build/XmlConfigCache.bin): /mnt/ue5_storage/ue5_5.8/Engine/Saved/UnrealBuildTool/BuildConfiguration.xml
+Reading configuration file from cache (/mnt/ue5_storage/ue5_5.8/Engine/Intermediate/Build/XmlConfigCache.bin): /home/nick/.config/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml
+Reading configuration file from cache (/mnt/ue5_storage/ue5_5.8/Engine/Intermediate/Build/XmlConfigCache.bin): /mnt/ue5_storage/ue5_5.8/Engine/Intermediate/Build/UnrealBuildTool.Env.BuildConfiguration.xml
+    Registering build platform: UnrealBuildTool.AndroidPlatformFactory
+Unable to find valid SDK(s) for Android:
+  Found Sdk Version, MinRequired=r27c, MaxRequired=r29.
+  Found AutoSdk Version, Required=r27c.
+        Registering build platform: Android - buildable: False
+    Registering build platform: UnrealBuildTool.IOSPlatformFactory
+        Registering build platform: IOS - buildable: False
+    Registering build platform: UnrealBuildTool.LinuxPlatformFactory
+Linux Installed SDK(s): Version_Sdk=v26_clang-20.1.8-rockylinux8, CurrentVersion_Sdk=v26_clang-20.1.8-rockylinux8, Version_AutoSdk=v26_clang-20.1.8-rockylinux8, CurrentVersion_AutoSdk=
+        Registering build platform: Linux - buildable: True
+LinuxArm64 Installed SDK(s): Version_Sdk=v26_clang-20.1.8-rockylinux8, CurrentVersion_Sdk=v26_clang-20.1.8-rockylinux8, Version_AutoSdk=v26_clang-20.1.8-rockylinux8, CurrentVersion_AutoSdk=
+        Registering build platform: LinuxArm64 - buildable: True
+    Registering build platform: UnrealBuildTool.MacPlatformFactory
+        Registering build platform: Mac - buildable: False
+    Registering build platform: UnrealBuildTool.TVOSPlatformFactory
+        Registering build platform: TVOS - buildable: False
+    Registering build platform: UnrealBuildTool.WindowsPlatformFactory
+        Registering build platform: Win64 - buildable: False
+    Registering build platform: UnrealBuildTool.VisionOSPlatformFactory
+        Registering build platform: VisionOS - buildable: False
+Cleaning up project rules folder
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Mutable/net10.0/Mutable.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Linux/net10.0/Linux.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Mac/net10.0/Mac.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Microsoft/net10.0/Microsoft.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/LiveLinkHub/net10.0/LiveLinkHub.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/BuildGraph/net10.0/BuildGraph.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/TVOS/net10.0/TVOS.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationUtils/net10.0/AutomationUtils.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/SmartlingLocalization/net10.0/SmartlingLocalization.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Apple/net10.0/Apple.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CrowdinLocalization/net10.0/CrowdinLocalization.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Localization/net10.0/Localization.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Windows/net10.0/Win.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Scripts/net10.0/AutomationScripts.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Turnkey/net10.0/Turnkey.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Platforms/VisionOS/Binaries/DotNET/AutomationTool/AutomationScripts/net10.0/VisionOS.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/XLocLocalization/net10.0/XLocLocalization.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/ICVFX/net10.0/ICVFX.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/LowLevelTests/net10.0/LowLevelTests.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Insights/net10.0/Insights.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/SteamDeck/net10.0/SteamDeck.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/AutomatedPerfTesting/net10.0/AutomatedPerfTesting.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/OneSkyLocalization/net10.0/OneSkyLocalization.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/IOS/net10.0/IOS.Automation.dll
+Loading script DLL: /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Gauntlet/net10.0/Gauntlet.Automation.dll
+Creating platforms.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Mutable/net10.0/Mutable.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll
+Creating platform GenericLinuxPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Creating platform GenericLinuxPlatformArm64 from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Creating platform LinuxPlatformArm64DXT from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Creating platform LinuxPlatformArm64ASTC from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Creating platform LinuxPlatformArm64ETC2 from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Creating platform LinuxPlatformArm64Multi from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Linux.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Mac.Automation.dll
+Creating platform MacPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Mac.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Microsoft/net10.0/Microsoft.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll
+Creating platform WindowsCookedEditor from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Creating platform LinuxCookedEditor from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Creating platform MacCookedEditor from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Creating platform WindowsCookedCooker from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Creating platform LinuxCookedCooker from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Creating platform MacCookedCooker from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/CookedEditor.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/LiveLinkHub/net10.0/LiveLinkHub.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/BuildGraph/net10.0/BuildGraph.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/TVOS/net10.0/TVOS.Automation.dll
+Creating platform TVOSPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/TVOS/net10.0/TVOS.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationUtils/net10.0/AutomationUtils.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/SmartlingLocalization/net10.0/SmartlingLocalization.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Apple.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll
+Creating platform AndroidPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Creating platform AndroidPlatformMulti from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Creating platform AndroidPlatformDXT from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Creating platform AndroidPlatformETC2 from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Creating platform AndroidPlatformASTC from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Creating platform AndroidPlatformOpenXR from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/Android/net10.0/Android.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CrowdinLocalization/net10.0/CrowdinLocalization.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Localization/net10.0/Localization.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Win.Automation.dll
+Creating platform Win64Platform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/Win.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Scripts/net10.0/AutomationScripts.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Turnkey/net10.0/Turnkey.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Platforms/VisionOS/Binaries/DotNET/AutomationTool/AutomationScripts/net10.0/VisionOS.Automation.dll
+Creating platform VisionOSPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Platforms/VisionOS/Binaries/DotNET/AutomationTool/AutomationScripts/net10.0/VisionOS.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/XLocLocalization/net10.0/XLocLocalization.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/ICVFX/net10.0/ICVFX.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/LowLevelTests/net10.0/LowLevelTests.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Insights/net10.0/Insights.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/CookedEditor/net10.0/SteamDeck.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/AutomatedPerfTesting/net10.0/AutomatedPerfTesting.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/OneSkyLocalization/net10.0/OneSkyLocalization.Automation.dll
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/IOS/net10.0/IOS.Automation.dll
+Creating platform IOSPlatform from /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Platforms/IOS/net10.0/IOS.Automation.dll.
+Looking for platforms in /mnt/ue5_storage/ue5_5.8/Engine/Binaries/DotNET/AutomationTool/AutomationScripts/Insights/net10.0/Gauntlet.Automation.dll
+Initializing AllowSubmit.
+AllowSubmit=False
+Initializing P4Enabled.
+P4Enabled=False
+P4CLRequired=False
+Executing commands...
+Attempting to execute Turnkey(utf8output, WaitForUATMutex, command=VerifySdk, ReportFilename=/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyReport_0.log, log=/home/nick/Documents/Unreal Projects/MyProject/Intermediate/TurnkeyLog_0.log, project=/home/nick/Documents/Unreal Projects/MyProject/MyProject.uproject, platform=all)
+BUILD SUCCESSFUL
+AutomationTool executed for 0h 0m 0s
+AutomationTool exiting with ExitCode=0 (Success)

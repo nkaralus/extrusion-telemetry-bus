@@ -1,0 +1,557 @@
+{
+  "spec": "task_block",
+  "version": 1,
+  "engine": "godot4",
+  "who_sees": "mule",
+  "language": "none",
+  "slots": {
+    "frame_id": {
+      "type": "string",
+      "rx": "^0x[0-9A-F]{4}$"
+    },
+    "time_slot": {
+      "type": "string",
+      "enum": [
+        "SLOT_3_EXECUTE"
+      ]
+    },
+    "subnet": {
+      "type": "string",
+      "rx": "^10\\.\\d{1,3}\\.\\d{1,3}\\.0/(16|24)$"
+    },
+    "op": {
+      "type": "string",
+      "enum": [
+        "spawn_instance",
+        "modify_property",
+        "connect_signal",
+        "add_method",
+        "add_node",
+        "set_physics_body",
+        "add_wall",
+        "add_camera"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "rx": "^%[A-Za-z_][A-Za-z0-9_]*$",
+      "enum_from": "state_registry.names_in_subnet"
+    },
+    "property": {
+      "type": "string",
+      "enum_from": "rag_record.props"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "bool",
+        "int",
+        "float",
+        "String",
+        "Vector2",
+        "Vector3",
+        "Color"
+      ],
+      "must_equal": "rag_record.props[property]"
+    },
+    "value": {
+      "type": "by_type",
+      "vector2": [
+        0.0,
+        0.0
+      ],
+      "vector3": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "ref": {
+      "type": "string",
+      "rx": "^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$",
+      "must_equal": "rag_record.addr"
+    },
+    "exclude": {
+      "type": "array",
+      "items": "string",
+      "enum": [
+        "KinematicBody2D",
+        "Spatial",
+        "yield",
+        "onready_var",
+        "export_var",
+        "setget",
+        "connect_3arg",
+        "instance_call",
+        "rand_range",
+        "move_and_slide_args",
+        "OS_ticks",
+        "File_Directory",
+        "Pool_arrays",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ],
+      "min_items": 1
+    },
+    "source": {
+      "type": "string",
+      "rx": "^%[A-Za-z_][A-Za-z0-9_]*$",
+      "enum_from": "state_registry.names_in_subnet"
+    },
+    "signal": {
+      "type": "string",
+      "rx": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "enum_from": "rag_record.signals"
+    },
+    "method": {
+      "type": "string",
+      "rx": "^_on_[a-z0-9_]+$",
+      "enum_from": "rag_record.methods",
+      "must_equal": "_on_<snake(target)>_<signal>"
+    },
+    "fn": {
+      "type": "string",
+      "rx": "^[a-z_][a-z0-9_]{0,39}$"
+    },
+    "args": {
+      "type": "array",
+      "items": "string",
+      "max_items": 3,
+      "item_rx": "^[a-z_][a-z0-9_]*: (bool|int|float|String|Vector2|Vector3|Color|Node|Node2D|Node3D|CanvasItem|CollisionObject2D|PhysicsBody2D|CharacterBody2D|RigidBody2D|StaticBody2D|Area2D|CollisionObject3D|PhysicsBody3D|CharacterBody3D|RigidBody3D|StaticBody3D|Area3D)$"
+    },
+    "returns": {
+      "type": "string",
+      "enum": [
+        "void"
+      ]
+    },
+    "body": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "print",
+        "assign"
+      ],
+      "also_array": "body may be an array of 1 to 6 statement objects: {kind: assign|relative|print|pass, ...}; with an array, message must be empty and property/type/operator/value live inside the statements"
+    },
+    "message": {
+      "type": "string",
+      "rx": "^[A-Za-z0-9 _.,:!?-]{0,40}$"
+    },
+    "operator": {
+      "type": "string",
+      "enum": [
+        "=",
+        "+=",
+        "-=",
+        "*="
+      ],
+      "default": "="
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "add",
+        "replace"
+      ],
+      "default": "add"
+    },
+    "statement": {
+      "kinds": {
+        "assign": [
+          "property",
+          "type",
+          "value"
+        ],
+        "relative": [
+          "property",
+          "type",
+          "operator",
+          "value"
+        ],
+        "print": [
+          "message"
+        ],
+        "pass": [],
+        "limit": [
+          "property",
+          "type",
+          "bound",
+          "value"
+        ],
+        "free": [
+          "target"
+        ]
+      },
+      "max_statements": 6,
+      "rules": [
+        "pass only alone",
+        "one = per property",
+        "the net effect on every touched property must differ from its start",
+        "a relative statement may not be overwritten by a later ="
+      ],
+      "limit": "limit: float or int property, bound max (speed = minf(speed, 500.0)) or min (maxf); Vector2/Vector3 property, bound max_length (velocity = velocity.limit_length(800.0)); a limit must come after a relative statement on the same property; in a handler wired to a repeating Timer every += -= and *= (factor over 1) needs a limit after it",
+      "free": "free: target is self or a registry node in the same scene (%Name); it becomes queue_free() or %Name.queue_free(); at most one per list and it must be the last statement"
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "Area2D",
+        "Timer",
+        "Marker2D",
+        "Node2D"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "rx": "^[A-Z][A-Za-z0-9]{1,23}$"
+    },
+    "parent": {
+      "type": "string",
+      "rx": "^(\\.|%[A-Za-z_][A-Za-z0-9_]*)$"
+    },
+    "position": {
+      "type": "array",
+      "items": "number",
+      "length": 2,
+      "range": [
+        -4096,
+        4096
+      ]
+    },
+    "size": {
+      "type": "array",
+      "items": "number",
+      "length": 2,
+      "range": [
+        8,
+        1024
+      ]
+    },
+    "template": {
+      "type": "string",
+      "enum": [
+        "input_vector_8way"
+      ]
+    },
+    "left": {
+      "type": "string",
+      "rx": "^[a-z][a-z_]{0,31}$"
+    },
+    "right": {
+      "type": "string",
+      "rx": "^[a-z][a-z_]{0,31}$"
+    },
+    "up": {
+      "type": "string",
+      "rx": "^[a-z][a-z_]{0,31}$"
+    },
+    "down": {
+      "type": "string",
+      "rx": "^[a-z][a-z_]{0,31}$"
+    },
+    "zoom": {
+      "type": "array",
+      "items": "number",
+      "length": 2,
+      "range": [
+        0.1,
+        8.0
+      ]
+    },
+    "smoothing": {
+      "type": "bool"
+    },
+    "smoothing_speed": {
+      "type": "float",
+      "range": [
+        0.5,
+        30.0
+      ]
+    }
+  },
+  "ops": {
+    "modify_property": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "property",
+        "type",
+        "value",
+        "ref",
+        "exclude"
+      ],
+      "ranges": {
+        "Timer.wait_time": [
+          0.05,
+          3600.0
+        ]
+      },
+      "v2": "a block may also target a node without a script (a %Timer): bool and float properties allowed by props_allow.json; GI_1 refuses a value outside the range listed for that class and property"
+    },
+    "spawn_instance": {
+      "status": "open"
+    },
+    "connect_signal": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "source",
+        "target",
+        "signal",
+        "method",
+        "ref",
+        "exclude"
+      ],
+      "v1": "source must equal target; the method is _on_<node>_<signal> and must already exist in the node's script; the harness writes the [connection] line, the mule only types the method name",
+      "v2": "source may differ from target: the signal is emitted by source, the handler lives on target (ref is the target's address). Both must be registry hosts in the same scene and the same subnet; the method is _on_<source>_<signal> and must already exist on the target; the harness writes [connection signal from=<source> to=<target> method]; the mule only completes the method name after %<source>.<signal>.connect(",
+      "cross_node": true
+    },
+    "add_method": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "fn",
+        "args",
+        "returns",
+        "body",
+        "message",
+        "ref",
+        "exclude"
+      ],
+      "v1": "append one function with a one-line body (pass or print) to the host node's script; the harness writes the canonical text, the mule only completes the body line",
+      "optional_slots": [
+        "property",
+        "type",
+        "value",
+        "operator",
+        "mode",
+        "guard"
+      ],
+      "v2": "body may also be assign: <property> = <literal> for a registered property; property, type and value are then required, and forbidden for pass and print",
+      "v3": "with body assign, operator may be = (default), +=, -= or *=; value is then the operand (float or int for numbers, the same vector for + -, a float for vector *)",
+      "v4": "mode replace swaps the whole body of an existing _on_ handler without arguments (same signature); it needs an array body",
+      "v5": "a statement may be a limit; GI_1 refuses an unbounded relative change in a handler wired to a repeating Timer (one_shot false)",
+      "v6": "args may be typed with a Node class (the harness writes them from the signal: _body: Node2D); guard 'self' makes the harness write the first line 'if <first argument> != self: return'; the mule never writes a signature or the guard line; statements never read the arguments"
+    },
+    "add_node": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "ref",
+        "exclude",
+        "class",
+        "name",
+        "parent"
+      ],
+      "optional_slots": [
+        "position",
+        "size"
+      ],
+      "v1": "add one node to the scene of the block's host (target/ref only name which scene): class Area2D (with a RectangleShape2D, size required), Timer, Marker2D or Node2D; the harness writes the scene text and unique_name_in_owner; the mule only completes position and size, one value per call; position is not allowed for a Timer, size only for an Area2D",
+      "v2": "GI_1: name 2 to 24 characters starting with a capital letter and unused by any node in the scene; parent is . (the scene root) or a registered node of the same scene; position within 4096, size 8 to 1024; at most 8 per plan and 24 registered nodes per scene; a new Area2D may not overlap any registered collision shape at load"
+    },
+    "set_physics_body": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "ref",
+        "exclude",
+        "template",
+        "left",
+        "right",
+        "up",
+        "down"
+      ],
+      "v1": "the harness replaces the body of the host's _physics_process (only move_and_slide(), pass or an earlier render) with the fixed template input_vector_8way: Input.get_vector over four named actions, velocity = dir * speed, move_and_slide(); no mule call. The harness first adds any missing action to project.godot (A/Left, D/Right, W/Up, S/Down). Host: a CharacterBody2D with speed float and velocity Vector2"
+    },
+    "add_wall": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "ref",
+        "exclude",
+        "name",
+        "parent",
+        "position",
+        "size"
+      ],
+      "v1": "the harness adds a StaticBody2D (name, parent, position) with a CollisionShape2D and a RectangleShape2D (size is the full width and height) to the scene of the block's host; no mule call. GI_1: the new wall may not overlap any registered collision shape (AABB); the scene needs a CharacterBody2D that reads Input.get_vector. SLOT_5 runs live_collide.gd: the mover is stopped with penetration <= 0.081 px, slides along the wall, and does not tunnel at speed 600"
+    },
+    "add_camera": {
+      "status": "locked",
+      "slots": [
+        "frame_id",
+        "time_slot",
+        "subnet",
+        "op",
+        "target",
+        "ref",
+        "exclude",
+        "name",
+        "parent"
+      ],
+      "optional_slots": [
+        "zoom",
+        "smoothing",
+        "smoothing_speed"
+      ],
+      "v1": "the harness adds a Camera2D (name, parent) to the scene of the block's host; no mule call. parent must be the mover."
+    }
+  },
+  "reply": {
+    "status": "added_for_review",
+    "slots": {
+      "frame_id": "echo",
+      "target": "echo",
+      "stmt": {
+        "type": "string",
+        "lines": 1
+      }
+    }
+  },
+  "exclude_default": [
+    "KinematicBody2D",
+    "Spatial",
+    "yield",
+    "onready_var",
+    "export_var",
+    "setget",
+    "connect_3arg",
+    "instance_call",
+    "rand_range",
+    "move_and_slide_args",
+    "OS_ticks",
+    "File_Directory",
+    "Pool_arrays",
+    "untyped_variables",
+    "relative_paths_up_tree",
+    "cross_subnet_queries"
+  ],
+  "exclude_checks": {
+    "KinematicBody2D": {
+      "kind": "regex",
+      "rx": "\\bKinematicBody(2D)?\\b"
+    },
+    "Spatial": {
+      "kind": "regex",
+      "rx": "\\bSpatial\\b"
+    },
+    "yield": {
+      "kind": "regex",
+      "rx": "\\byield\\s*\\("
+    },
+    "onready_var": {
+      "kind": "regex",
+      "rx": "(?<!@)\\bonready\\s+var\\b"
+    },
+    "export_var": {
+      "kind": "regex",
+      "rx": "(?<!@)\\bexport\\s*(\\(|var\\b)"
+    },
+    "setget": {
+      "kind": "regex",
+      "rx": "\\bsetget\\b"
+    },
+    "connect_3arg": {
+      "kind": "regex",
+      "rx": "\\.connect\\(\\s*\\\"[^\\\"]+\\\"\\s*,\\s*[^,()]+,\\s*\\\""
+    },
+    "instance_call": {
+      "kind": "regex",
+      "rx": "\\.instance\\s*\\("
+    },
+    "rand_range": {
+      "kind": "regex",
+      "rx": "\\brand_range\\s*\\("
+    },
+    "move_and_slide_args": {
+      "kind": "regex",
+      "rx": "move_and_slide\\(\\s*[^)\\s]"
+    },
+    "OS_ticks": {
+      "kind": "regex",
+      "rx": "\\bOS\\.get_ticks_msec\\b"
+    },
+    "File_Directory": {
+      "kind": "regex",
+      "rx": "\\b(File|Directory)\\.new\\s*\\("
+    },
+    "Pool_arrays": {
+      "kind": "regex",
+      "rx": "\\bPool\\w+Array\\b"
+    },
+    "untyped_variables": {
+      "kind": "regex",
+      "rx": "\\bvar\\s+\\w+\\s*(=|$)"
+    },
+    "relative_paths_up_tree": {
+      "kind": "regex",
+      "rx": "\\.\\./"
+    },
+    "cross_subnet_queries": {
+      "kind": "code",
+      "rule": "target_addr_prefix_must_equal_block_subnet"
+    }
+  },
+  "guards": {
+    "GI_1": {
+      "checks": [
+        "addr_in_registry",
+        "uid_in_registry",
+        "no_addr_conflict"
+      ]
+    },
+    "GI_2": {
+      "vram_gb_max": 10.0,
+      "ram_cache_gb_max": 6.0
+    },
+    "GI_3": {
+      "checks": [
+        "json_parse",
+        "slot_enum_match",
+        "type_match",
+        "exclude_hit",
+        "subnet_boundary"
+      ]
+    },
+    "SLOT_4": {
+      "judge": "godot --headless --check-only --script <res_path>",
+      "on_pass": "ACK",
+      "on_fail": "NAK",
+      "max_tries": 3,
+      "after_max": "dead_letter_queue",
+      "nak_carries": "exact_error"
+    }
+  }
+}

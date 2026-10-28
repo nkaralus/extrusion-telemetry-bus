@@ -1,0 +1,99 @@
+{
+  "plan_id": "p0024",
+  "created": "2026-10-22 13:44:01",
+  "plan": {
+    "intent": "when the player touches the trigger, speed up by 10, never above 600, and remove the trigger",
+    "node": "%Player",
+    "assumptions": [
+      "'touches the trigger' = %Trigger's body_entered, only when the entering body is the player",
+      "'remove the trigger' = free %Trigger as the last statement"
+    ],
+    "steps": [
+      {
+        "do": "when",
+        "from": "%Trigger",
+        "signal": "body_entered",
+        "only": "self",
+        "then": [
+          {
+            "increase": {
+              "property": "speed",
+              "by": 10.0
+            }
+          },
+          {
+            "limit": {
+              "property": "speed",
+              "max": 600.0
+            }
+          },
+          {
+            "free": "%Trigger"
+          }
+        ]
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6043",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_trigger_body_entered",
+      "args": [
+        "_body: Node2D"
+      ],
+      "returns": "void",
+      "body": [
+        {
+          "kind": "relative",
+          "property": "speed",
+          "type": "float",
+          "operator": "+=",
+          "value": 10.0
+        },
+        {
+          "kind": "limit",
+          "property": "speed",
+          "type": "float",
+          "bound": "max",
+          "value": 600.0
+        },
+        {
+          "kind": "free",
+          "target": "%Trigger"
+        }
+      ],
+      "message": "",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ],
+      "guard": "self"
+    },
+    {
+      "frame_id": "0x6044",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "connect_signal",
+      "source": "%Trigger",
+      "target": "%Player",
+      "signal": "body_entered",
+      "method": "_on_trigger_body_entered",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "connect_3arg",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

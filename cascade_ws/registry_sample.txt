@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "hosts": {
+    "10.1.1.10": {
+      "addr": "10.1.1.10",
+      "subnet": "10.1.1.0/24",
+      "uid": "uid://c251yl1scfpm1",
+      "node": "CharacterBody2D",
+      "name": "%Player",
+      "scene": "res://scenes/player.tscn",
+      "script": "res://scripts/player.gd",
+      "owner_scene": "res://scenes/main.tscn",
+      "tree": "Main/Player",
+      "props": {
+        "speed": "float",
+        "velocity": "Vector2"
+      },
+      "signals": [
+        "child_entered_tree",
+        "child_exiting_tree",
+        "child_order_changed",
+        "draw",
+        "editor_description_changed",
+        "hidden",
+        "input_event",
+        "item_rect_changed",
+        "mouse_entered",
+        "mouse_exited",
+        "mouse_shape_entered",
+        "mouse_shape_exited",
+        "property_list_changed",
+        "ready",
+        "renamed",
+        "replacing_by",
+        "script_changed",
+        "tree_entered",
+        "tree_exited",
+        "tree_exiting",
+        "visibility_changed"
+      ],
+      "methods": [
+        "_on_player_child_entered_tree",
+        "_on_player_hidden",
+        "_on_player_item_rect_changed",
+        "_on_player_ready",

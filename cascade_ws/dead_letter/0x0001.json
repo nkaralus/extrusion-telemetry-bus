@@ -1,0 +1,66 @@
+{
+  "block": {
+    "frame_id": "0x0001",
+    "time_slot": "SLOT_3_EXECUTE",
+    "subnet": "10.1.1.0/24",
+    "op": "modify_property",
+    "target": "%Player",
+    "property": "velocity",
+    "type": "Vector2",
+    "value": [
+      0.0,
+      -400.0
+    ],
+    "ref": "10.1.1.10",
+    "exclude": [
+      "KinematicBody2D",
+      "untyped_variables",
+      "relative_paths_up_tree",
+      "cross_subnet_queries"
+    ]
+  },
+  "rag": {
+    "addr": "10.1.1.10",
+    "subnet": "10.1.1.0/24",
+    "uid": "uid://c251yl1scfpm1",
+    "node": "CharacterBody2D",
+    "name": "%Player",
+    "scene": "res://scenes/player.tscn",
+    "script": "res://scripts/player.gd",
+    "owner_scene": "res://scenes/main.tscn",
+    "tree": "Main/Player",
+    "props": {
+      "speed": "float",
+      "velocity": "Vector2"
+    },
+    "peering": {
+      "pub_sub": "signals_upward",
+      "multicast": "call_group",
+      "ixp": "/root/InterconnectBus"
+    },
+    "exclude": [
+      "KinematicBody2D",
+      "../../"
+    ]
+  },
+  "attempts": [
+    {
+      "try": 1,
+      "stmt": "velocity = 0.0, -400.0",
+      "status": "NAK",
+      "error": "type_match: write the value as Vector2(...) with number literals only"
+    },
+    {
+      "try": 2,
+      "stmt": "velocity = 0.0, -400.0",
+      "status": "NAK",
+      "error": "type_match: write the value as Vector2(...) with number literals only"
+    },
+    {
+      "try": 3,
+      "stmt": "velocity = 0.0, -400.0",
+      "status": "NAK",
+      "error": "type_match: write the value as Vector2(...) with number literals only"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+extends SceneTree
+# watch the real scene for a few seconds: does the Timer start by itself, and does the handler run when it fires?
+func _initialize() -> void:
+    await process_frame
+    var main: Node = load("res://scenes/main.tscn").instantiate()
+    root.add_child(main)
+    var p: Node = main.get_node("%Player")
+    var t: Timer = main.get_node("%Timer")
+    var secs: float = t.wait_time + 0.5 if t.one_shot else minf(3.0 * t.wait_time, 12.0) + 0.5
+    print("WATCH start: speed=", p.speed, "  timer wait=", t.wait_time, " one_shot=", t.one_shot, " running=", not t.is_stopped())
+    await create_timer(secs).timeout
+    print("WATCH end after ", secs, " s: speed=", p.speed, "  velocity=", p.velocity, "  timer running=", not t.is_stopped())
+    quit()

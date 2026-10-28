@@ -1,0 +1,52 @@
+{
+  "plan_id": "p0014",
+  "intent": "after 3 seconds, set the player's speed to 700 and print launch",
+  "state": "applied",
+  "undone": true,
+  "created": "2026-10-21 15:20:22",
+  "files": {
+    "res://scenes/main.tscn": {
+      "pre": "0d8e6848518714771a9baca1262b9895",
+      "post": "ee2f7dc283ea49648ef40ed12f9f4aa9"
+    },
+    "res://scripts/player.gd": {
+      "pre": "7673c7f28631ff254e5336ae97501535",
+      "post": "104985c26f5f8ed8e069aa5449a685cf"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6011",
+      "op": "modify_property",
+      "status": "APPLIED",
+      "tries": 1,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6011.20261021-152004.bak"
+    },
+    {
+      "frame_id": "0x6012",
+      "op": "modify_property",
+      "status": "APPLIED",
+      "tries": 1,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6012.20261021-152007.bak"
+    },
+    {
+      "frame_id": "0x6013",
+      "op": "modify_property",
+      "status": "APPLIED",
+      "tries": 1,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6013.20261021-152010.bak"
+    },
+    {
+      "frame_id": "0x6014",
+      "op": "add_method",
+      "status": "APPLIED",
+      "tries": 2,
+      "file": "res://scripts/player.gd",
+      "backup": "/home/nick/cascade_ws/engine_test/scripts/player.gd.0x6014.20261021-152018.bak"
+    }
+  ],
+  "undone_at": "2026-10-21 15:23:09"
+}

@@ -1,0 +1,23 @@
+{
+  "plan_id": "p0010",
+  "intent": "when the player is renamed, raise its speed by 25, lower the speed by 5, double its velocity, and print boosted",
+  "state": "applied",
+  "undone": false,
+  "created": "2026-10-21 14:18:35",
+  "files": {
+    "res://scripts/player.gd": {
+      "pre": "bf84fa7655207ac9f229528c08c2a521",
+      "post": "d37981e9b04736cc0ee00be092f92d9e"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x600B",
+      "op": "add_method",
+      "status": "APPLIED",
+      "tries": 5,
+      "file": "res://scripts/player.gd",
+      "backup": "/home/nick/cascade_ws/engine_test/scripts/player.gd.0x600B.20261021-141834.bak"
+    }
+  ]
+}

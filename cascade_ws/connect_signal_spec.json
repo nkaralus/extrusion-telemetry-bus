@@ -1,0 +1,96 @@
+{
+  "op": "connect_signal",
+  "status": "LOCKED and built (Step 7) - tested on Godot 4.3 with the stand-in model; real Gemma run pending",
+  "scope_v1": "one emitting node connected to a method on the same node (source == target); other pairs stay an open slot",
+  "block_slots": {
+    "frame_id": "0x + 4 hex digits, upper case",
+    "time_slot": "SLOT_3_EXECUTE",
+    "subnet": "copied from the registry host",
+    "op": "connect_signal",
+    "source": "%Name of the node that emits (registry host name)",
+    "target": "%Name of the node that receives; v1: must equal source",
+    "signal": "identifier, must be in the host's registry 'signals' list",
+    "method": "identifier, must be in the host's registry 'methods' list AND equal _on_<snake(target without %)>_<signal>",
+    "ref": "registry address of the host",
+    "exclude": [
+      "KinematicBody2D",
+      "connect_3arg",
+      "untyped_variables",
+      "relative_paths_up_tree",
+      "cross_subnet_queries"
+    ],
+    "exclude_note": "names come from the locked spec enum; connect_3arg is the existing Godot 3 connect check. GI_3's exact match covers the Callable-by-string form."
+  },
+  "registry_additions": {
+    "signals": "built-in signals of the node's class (ClassDB.class_get_signal_list) plus signals declared in its script",
+    "methods": "methods declared in the node's script (get_script_method_list)"
+  },
+  "example_block": {
+    "frame_id": "0x2000",
+    "time_slot": "SLOT_3_EXECUTE",
+    "subnet": "10.1.1.0/24",
+    "op": "connect_signal",
+    "source": "%Player",
+    "target": "%Player",
+    "signal": "ready",
+    "method": "_on_player_ready",
+    "ref": "10.1.1.10",
+    "exclude": [
+      "KinematicBody2D",
+      "connect_3arg",
+      "untyped_variables",
+      "relative_paths_up_tree",
+      "cross_subnet_queries"
+    ]
+  },
+  "mule_view_ultra": [
+    "op",
+    "signal",
+    "method"
+  ],
+  "example_mule_message": "{\"task\":{\"op\":\"connect_signal\",\"signal\":\"ready\",\"method\":\"_on_player_ready\"}}",
+  "prefill_anchor": {
+    "rule": "{\"frame_id\":<frame_id>,\"target\":<target>,\"stmt\":\"<signal>.connect(",
+    "example": "{\"frame_id\":\"0x2000\",\"target\":\"%Player\",\"stmt\":\"ready.connect(",
+    "mule_completes": "_on_player_ready)",
+    "ends_on": "an open parenthesis, never on a space"
+  },
+  "guards": {
+    "GI_1": [
+      "ref resolves to a registry host and source/target match its name",
+      "source == target (v1)",
+      "signal is in host.signals",
+      "method is in host.methods and matches _on_<snake(target)>_<signal>",
+      "the owner scene does not already hold this exact [connection] (if it does: status NOOP_ALREADY_CONNECTED, the mule never runs, nothing is written)"
+    ],
+    "GI_2": "unchanged",
+    "GI_3": [
+      "reply echoes frame_id and target",
+      "stmt is ONE line and equals exactly <signal>.connect(<method>)",
+      "exclude checks from the locked enum (connect_3arg catches Godot 3 syntax); the exact-match rule above already refuses Callable(self, \"m\") and every other form"
+    ],
+    "SLOT_4": "throwaway script that extends the target's script and holds the stmt in a function body; godot --headless --check-only, exit 0 = ACK",
+    "APPLY": [
+      ".bak backup of the owner scene",
+      "harness writes [connection signal=\"<signal>\" from=\"<path>\" to=\"<path>\" method=\"<method>\"] after the last [node] or [connection] section; the line is built from the validated block fields, never from the mule's text",
+      "headless reload: the node's get_signal_connection_list(<signal>) must hold <method> on the target; otherwise restore the backup"
+    ]
+  },
+  "tested_on_godot_4_3": {
+    "builtin_signals_of_CharacterBody2D": 21,
+    "custom_signals_in_test_project": 0,
+    "script_methods_in_player_gd": [
+      "_physics_process"
+    ],
+    "scene_line_loads": "[connection signal=\"ready\" from=\"Player\" to=\"Player\" method=\"_on_player_ready\"] loads and shows up in get_signal_connection_list",
+    "missing_method_in_scene": "Godot still lists the connection when the method does not exist (it only fails when the signal fires), so the reload check alone cannot catch it",
+    "check_only_results": {
+      "ready.connect(_on_player_ready)": "exit 0 when the method exists",
+      "ready.connect(_on_player_missing)": "exit 1, Identifier not declared",
+      "ready_x.connect(_on_player_ready)": "exit 1, Identifier not declared",
+      "connect(\"ready\", self, \"_on_player_ready\")": "exit 1, argument 2 should be Callable",
+      "ready.connect(Callable(self, \"_on_player_ready\"))": "exit 0, so GI_3 must refuse it: the string method is never checked",
+      "tree_entered.connect(_on_player_ready)": "exit 0, so GI_3 must refuse it: wrong signal for this block"
+    }
+  }
+}

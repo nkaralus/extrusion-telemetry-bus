@@ -1,0 +1,43 @@
+{
+  "plan_id": "p0025",
+  "intent": "put a coin at 420, 0 that speeds the player up by 25 when touched, never above 600, and disappears",
+  "state": "applied",
+  "undone": false,
+  "created": "2026-10-22 14:08:35",
+  "files": {
+    "res://scenes/main.tscn": {
+      "pre": "c6369770e6c020203ceadd43c617aaa1",
+      "post": "2218cb0e8aa1182d823dd26d920d4462"
+    },
+    "res://scripts/player.gd": {
+      "pre": "255d123ca87360acf78a8b58d2e84471",
+      "post": "9351adf1492005a73f90df8e4a49d3e5"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x6045",
+      "op": "add_node",
+      "status": "APPLIED",
+      "tries": 2,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6045.20261022-140820.bak"
+    },
+    {
+      "frame_id": "0x6046",
+      "op": "add_method",
+      "status": "APPLIED",
+      "tries": 3,
+      "file": "res://scripts/player.gd",
+      "backup": "/home/nick/cascade_ws/engine_test/scripts/player.gd.0x6046.20261022-140830.bak"
+    },
+    {
+      "frame_id": "0x6047",
+      "op": "connect_signal",
+      "status": "APPLIED",
+      "tries": 1,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6047.20261022-140834.bak"
+    }
+  ]
+}

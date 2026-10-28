@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "note": "Editable. The harness reads phrases from here; the registry decides which signals are usable. 'group' says how the behavior check sees the signal: enter = fires by itself when the node enters the tree, leave = fires by itself when it leaves, never = it never fires by itself so the check emits it. 'repeats' is true for signals that can fire many times in one life (a relative change on them compounds); unknown signals count as repeating.",
+  "signals": {
+    "tree_entered": {
+      "group": "enter",
+      "fires": "by itself when the node enters the tree",
+      "phrases": [
+        "enters the scene",
+        "enters the tree",
+        "is added to the scene",
+        "spawns",
+        "appears in the scene"
+      ],
+      "repeats": false
+    },
+    "ready": {
+      "group": "enter",
+      "fires": "by itself, once, when the node is ready (right after it enters the tree)",
+      "phrases": [
+        "is ready",
+        "starts",
+        "begins",
+        "starts up"
+      ],
+      "repeats": false
+    },
+    "visibility_changed": {
+      "group": "enter",
+      "fires": "by itself when it enters the tree, and whenever its visibility changes",
+      "phrases": [
+        "becomes visible or hidden",
+        "visibility changes",
+        "is shown or hidden"
+      ],
+      "repeats": true
+    },
+    "draw": {
+      "group": "enter",
+      "fires": "by itself each time it is drawn (it repeats on every redraw)",
+      "phrases": [
+        "is drawn",
+        "gets redrawn"
+      ],
+      "repeats": true
+    },
+    "tree_exiting": {
+      "group": "leave",
+      "fires": "by itself when the node is about to leave the tree",
+      "phrases": [
+        "leaves the scene",
+        "leaves the tree",
+        "is removed",
+        "exits the scene",
+        "despawns",
+        "quits",
+        "is about to leave"
+      ],
+      "repeats": false
+    },
+    "tree_exited": {
+      "group": "leave",
+      "fires": "by itself right after the node has left the tree",
+      "phrases": [
+        "has left the scene",
+        "is gone",
+        "has been removed"
+      ],
+      "repeats": false
+    },
+    "hidden": {
+      "group": "never",
+      "fires": "never by itself in this scene (the behavior check emits it)",
+      "phrases": [
+        "is hidden",
+        "hides",
+        "becomes hidden"
+      ],
+      "repeats": true
+    },
+    "renamed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "is renamed",
+        "gets a new name"
+      ],
+      "repeats": true
+    },
+    "script_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "gets a different script"
+      ],
+      "repeats": true
+    },
+    "child_order_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its children are reordered"
+      ],
+      "repeats": true
+    },
+    "item_rect_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its rectangle changes"
+      ],
+      "repeats": true
+    },
+    "property_list_changed": {
+      "group": "never",
+      "fires": "never by itself (the behavior check emits it)",
+      "phrases": [
+        "its property list changes"
+      ],
+      "repeats": true
+    },
+    "mouse_entered": {
+      "group": "never",
+      "fires": "never by itself in a headless run (the behavior check emits it)",
+      "phrases": [
+        "the mouse enters it"
+      ],
+      "repeats": true
+    },
+    "mouse_exited": {
+      "group": "never",
+      "fires": "never by itself in a headless run (the behavior check emits it)",
+      "phrases": [
+        "the mouse leaves it"
+      ],
+      "repeats": true
+    }
+  },
+  "steps": [
+    "when:         {\"do\": \"when\", \"signal\": \"tree_entered\", \"then\": {\"set\": {\"property\": \"speed\", \"value\": 450.0}}}   (a handler plus its connection)",
+    "              then is exactly one of  {\"set\": {\"property\": P, \"value\": V}}  {\"print\": \"message\"}  {\"nothing\": true}",
+    "              or  {\"increase\": {\"property\": \"speed\", \"by\": 50.0}}  {\"decrease\": {\"property\": \"speed\", \"by\": 10.0}}  {\"scale\": {\"property\": \"velocity\", \"by\": 2.0}}   (+=, -=, *= on float, int, Vector2, Vector3 properties)",
+    "set_property: {\"do\": \"set_property\", \"property\": \"velocity\", \"value\": [0.0, -400.0]}   (the starting value stored in the scene)",
+    "add_function: {\"do\": \"add_function\", \"name\": \"reset_speed\", \"then\": {\"set\": {\"property\": \"speed\", \"value\": 300.0}}}   (a function, not connected)",
+    "connect:      {\"do\": \"connect\", \"signal\": \"hidden\", \"handler\": \"_on_player_hidden\"}   (to a handler that already exists)"
+  ],
+  "values": "float 450.0 (always with a decimal point) | int 7 | bool true/false | String plain text up to 40 characters (letters, digits, space and _ . , : ! ? -) | Vector2 [x, y] | Vector3 [x, y, z] | Color [r, g, b, a] | 'by': a float for float properties, an int for int properties, the same vector for increase/decrease on Vector2/Vector3, a float for scale on a vector; never 0 for increase/decrease or 1 for scale",
+  "supported_intents": [
+    "when <event>, set <property> to <literal>",
+    "when <event>, increase / decrease <property> by <number or vector>",
+    "when <event>, scale <property> by <factor> (double, halve, 1.5 times ...)",
+    "when <event>, print <message>",
+    "when <event>, do nothing (a placeholder handler)",
+    "set <property> to <literal> in the scene",
+    "add a function that sets, changes, prints or does nothing",
+    "connect <event> to an existing handler"
+  ],
+  "refusals": [
+    "several actions in one handler (multi-statement bodies are an open slot)",
+    "values that come from other properties or expressions: set speed to health plus 10, half of the current speed written as a formula (use scale 0.5 instead)",
+    "division, and relative changes on bool, String or Color properties",
+    "handlers with arguments, and signals that carry arguments",
+    "another node, spawning or instancing scenes, timers, input",
+    "a property, signal or node that is not in the catalog",
+    "changing the body of a handler that already exists (editing is an open slot)"
+  ]
+}

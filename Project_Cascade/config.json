@@ -1,0 +1,37 @@
+{
+  "_note": "Models load straight into Python. 'path' = a folder you downloaded with hf download, or a Hugging Face repo name. load_in_4bit shrinks a model to fit 12 GB VRAM (needs bitsandbytes).",
+  "models": {
+    "gemma12b": {
+      "path": "C:/models/gemma12b-split",
+      "load_in_4bit": true
+    },
+    "qwen9b": {
+      "path": "C:/models/qwen9b",
+      "load_in_4bit": true
+    },
+    "gemma26b": {
+      "path": "/run/media/nick/Acer/models/gemma26b-split",
+      "clip": {
+        "int8": "/run/media/nick/Acer/models/gemma26b-int8experts",
+        "gpu_cache": 2.5,
+        "ram_cache": 6,
+        "tag": "code",
+        "warm": true
+      }
+    },
+    "qwen36-slim": {
+      "path": "/run/media/nick/Acer/models/qwen36-slim",
+      "clip": {
+        "int8": "/run/media/nick/Acer/models/qwen36-int8experts",
+        "gpu_cache": 4.0,
+        "ram_cache": 6,
+        "tag": "code",
+        "warm": true
+      }
+    }
+  },
+  "temperature": 0.2,
+  "max_tokens": 1200,
+  "judge_timeout_s": 20,
+  "loop_max_tries": 3
+}

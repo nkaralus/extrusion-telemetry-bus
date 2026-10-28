@@ -1,0 +1,1 @@
+{"frame_id": "0x6045", "time_slot": "SLOT_3_EXECUTE", "subnet": "10.1.1.0/24", "op": "add_node", "target": "%Player", "ref": "10.1.1.10", "exclude": ["KinematicBody2D", "untyped_variables", "relative_paths_up_tree", "cross_subnet_queries"], "class": "Area2D", "name": "Coin", "parent": ".", "position": [420.0, 0.0], "size": [48.0, 48.0]}

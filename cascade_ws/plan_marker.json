@@ -1,0 +1,1 @@
+{"intent": "put an empty marker at 0, 200 and a second one at 0, 400", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "add_node", "class": "Marker2D", "name": "SpawnA", "at": [0, 200]}, {"do": "add_node", "class": "Marker2D", "name": "SpawnB", "at": [0, 400]}]}

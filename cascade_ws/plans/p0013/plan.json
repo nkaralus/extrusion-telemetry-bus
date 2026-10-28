@@ -1,0 +1,82 @@
+{
+  "plan_id": "p0013",
+  "created": "2026-10-21 15:03:45",
+  "plan": {
+    "intent": "when the timer runs out, set the player's speed to 600 and print go",
+    "node": "%Player",
+    "assumptions": [
+      "'the timer' = %Timer, the Timer node in the scene",
+      "'runs out' = its timeout signal",
+      "the speed change belongs to %Player, which owns the handler"
+    ],
+    "steps": [
+      {
+        "do": "when",
+        "from": "%Timer",
+        "signal": "timeout",
+        "then": [
+          {
+            "set": {
+              "property": "speed",
+              "value": 600.0
+            }
+          },
+          {
+            "print": "go"
+          }
+        ]
+      }
+    ]
+  },
+  "blocks": [
+    {
+      "frame_id": "0x600F",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "add_method",
+      "target": "%Player",
+      "fn": "_on_timer_timeout",
+      "args": [],
+      "returns": "void",
+      "body": [
+        {
+          "kind": "assign",
+          "property": "speed",
+          "type": "float",
+          "value": 600.0
+        },
+        {
+          "kind": "print",
+          "message": "go"
+        }
+      ],
+      "message": "",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "untyped_variables",
+        "yield",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    },
+    {
+      "frame_id": "0x6010",
+      "time_slot": "SLOT_3_EXECUTE",
+      "subnet": "10.1.1.0/24",
+      "op": "connect_signal",
+      "source": "%Timer",
+      "target": "%Player",
+      "signal": "timeout",
+      "method": "_on_timer_timeout",
+      "ref": "10.1.1.10",
+      "exclude": [
+        "KinematicBody2D",
+        "connect_3arg",
+        "untyped_variables",
+        "relative_paths_up_tree",
+        "cross_subnet_queries"
+      ]
+    }
+  ]
+}

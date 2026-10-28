@@ -1,0 +1,5 @@
+[
+  "no json here",
+  "{\"frame_id\":\"0x9999\",\"target\":\"%Player\",\"stmt\":\"velocity = Vector2(0.0, -400.0)\"}",
+  "{\"frame_id\":\"0x0001\",\"target\":\"%Player\",\"stmt\":\"velocity = Vector2(0.0, -400.0)\\nvar x = 1\"}"
+]

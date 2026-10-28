@@ -13,16 +13,21 @@ dependencies = [
   "pydantic>=2.5",
   "fastapi>=0.110",
   "uvicorn>=0.27",
+  "python-multipart>=0.0.9",
+  "pillow>=10",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = ["pytest>=8", "httpx>=0.27", "playwright>=1.40"]
 
 [project.scripts]
 extbus = "extrusion_bus.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["extrusion_bus*"]
+
+[tool.setuptools.package-data]
+extrusion_bus = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

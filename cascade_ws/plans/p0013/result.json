@@ -1,0 +1,35 @@
+{
+  "plan_id": "p0013",
+  "intent": "when the timer runs out, set the player's speed to 600 and print go",
+  "state": "applied",
+  "undone": false,
+  "created": "2026-10-21 15:04:03",
+  "files": {
+    "res://scenes/main.tscn": {
+      "pre": "dbbe71de40d40dcacc1ff4a65fbd26bc",
+      "post": "0d8e6848518714771a9baca1262b9895"
+    },
+    "res://scripts/player.gd": {
+      "pre": "d37981e9b04736cc0ee00be092f92d9e",
+      "post": "7673c7f28631ff254e5336ae97501535"
+    }
+  },
+  "blocks": [
+    {
+      "frame_id": "0x600F",
+      "op": "add_method",
+      "status": "APPLIED",
+      "tries": 2,
+      "file": "res://scripts/player.gd",
+      "backup": "/home/nick/cascade_ws/engine_test/scripts/player.gd.0x600F.20261021-150400.bak"
+    },
+    {
+      "frame_id": "0x6010",
+      "op": "connect_signal",
+      "status": "APPLIED",
+      "tries": 1,
+      "file": "res://scenes/main.tscn",
+      "backup": "/home/nick/cascade_ws/engine_test/scenes/main.tscn.0x6010.20261021-150403.bak"
+    }
+  ]
+}
