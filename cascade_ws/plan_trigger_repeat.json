@@ -1,1 +1,0 @@
-{"intent": "every time the player touches the trigger, speed up by 10, never above 600", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "when", "from": "%Trigger", "signal": "body_entered", "only": "self", "then": [{"increase": {"property": "speed", "by": 10.0}}, {"limit": {"property": "speed", "max": 600.0}}]}]}

@@ -1,1 +1,0 @@
-{"frame_id": "0x6037", "time_slot": "SLOT_3_EXECUTE", "subnet": "10.1.1.0/24", "op": "modify_property", "target": "%Timer", "property": "one_shot", "type": "bool", "value": false, "ref": "10.1.1.11", "exclude": ["KinematicBody2D", "untyped_variables", "relative_paths_up_tree", "cross_subnet_queries"]}

@@ -1,3 +1,0 @@
-{"frame_id":"0x2201","time_slot":"SLOT_3_EXECUTE","subnet":"10.1.1.0/24","op":"add_sprite","target":"%Coin","ref":"10.1.1.13",
- "exclude":["KinematicBody2D","untyped_variables","relative_paths_up_tree","cross_subnet_queries"],
- "name":"CoinSprite","texture":"res://sprites/coin.png","centered":true}

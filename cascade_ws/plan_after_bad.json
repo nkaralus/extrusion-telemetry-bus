@@ -1,1 +1,0 @@
-{"intent": "after a hundredth of a second, print x", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "after", "seconds": 0.01, "then": {"print": "x"}}]}

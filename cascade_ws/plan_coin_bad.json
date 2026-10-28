@@ -1,1 +1,0 @@
-{"intent": "put a coin right on top of the trigger", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "add_node", "class": "Area2D", "name": "Coin", "at": [300, 0], "size": [48, 48]}]}

@@ -1,7 +1,0 @@
-{
-  "intent": "make the camera follow the player",
-  "node": "%Player",
-  "steps": [
-    {"do": "add_camera", "name": "Camera", "zoom": [1, 1], "smoothing": true, "speed": 5.0}
-  ]
-}

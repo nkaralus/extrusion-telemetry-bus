@@ -1,3 +1,0 @@
-{"frame_id":"0x2101","time_slot":"SLOT_3_EXECUTE","subnet":"10.1.1.0/24","op":"add_camera","target":"%Player","ref":"10.1.1.10",
-"exclude":["KinematicBody2D","untyped_variables","relative_paths_up_tree","cross_subnet_queries"],
-"name":"Camera","parent":"%Player","zoom":[1.0,1.0],"smoothing":true,"smoothing_speed":5.0}

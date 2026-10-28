@@ -1,1 +1,0 @@
-{"intent": "when the player touches the trigger, speed up by 10 and print hit", "node": "%Player", "assumptions": ["x"], "steps": [{"do": "when", "from": "%Trigger", "signal": "body_entered", "only": "self", "then": [{"increase": {"property": "speed", "by": 10.0}}, {"print": "hit"}]}]}

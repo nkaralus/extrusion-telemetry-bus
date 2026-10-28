@@ -1,1 +1,0 @@
-{"frame_id":"0x5002","time_slot":"SLOT_3_EXECUTE","subnet":"10.1.1.0/24","op":"add_method","target":"%Player","fn":"_on_player_hidden","args":[],"returns":"void","body":"assign","message":"","property":"speed","type":"float","value":300.0,"ref":"10.1.1.10","exclude":["KinematicBody2D","untyped_variables","yield","relative_paths_up_tree","cross_subnet_queries"]}

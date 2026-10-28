@@ -1,1 +1,0 @@
-{"intent": "when the player's item rect changes, increase its speed by 50", "node": "%Player", "assumptions": ["'item rect changes' = the item_rect_changed signal", "'by 50' = += 50.0 on the float property speed"], "steps": [{"do": "when", "signal": "item_rect_changed", "then": {"increase": {"property": "speed", "by": 50.0}}}]}

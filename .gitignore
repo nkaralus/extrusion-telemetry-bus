@@ -8,3 +8,14 @@ build/
 .pytest_cache/
 extbus.log
 media/
+*.zip
+files/
+files (2)/
+Library/
+Project_Cascade/
+cascade_ws/
+cascade-godot/
+engine-telemetry-bus/
+mule-protocol/
+wget-log
+long_prompt.txt

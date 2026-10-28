@@ -1,7 +1,0 @@
-{
-  "intent": "give the coin a visible sprite",
-  "node": "%Coin",
-  "steps": [
-    {"do": "add_sprite", "name": "CoinSprite", "texture": "res://sprites/coin.png"}
-  ]
-}
