@@ -181,8 +181,9 @@ def release_batch(bus: FabricationBus, job_ids: List[str]) -> Tuple[BatchPlan, F
                 rec = bus.reg.state.intakes.get(jid)
                 if rec is not None and "released" in rec:
                     rec["released"]["batch"] = plan.batch_id
+            due = min((f.due_ts for _, f in members if f.due_ts is not None), default=None)   # the earliest need wins
             frame = bus.frame_from_specs(plan.batch_id, plan.order, plan.piece_jobs,
-                                         note=f"batch of {', '.join(job_ids)}")
+                                         note=f"batch of {', '.join(job_ids)}", due_ts=due)
             bus.reg.log("BATCH_RELEASED", batch=plan.batch_id, jobs=job_ids, frame=frame.frame_id)
     except BaseException:
         for fid in set(bus.frames) - known:

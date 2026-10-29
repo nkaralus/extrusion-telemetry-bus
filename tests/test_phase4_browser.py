@@ -132,7 +132,7 @@ def test_sales_to_engineering_to_saw_bench_in_a_real_browser(browser, live):
     # ---------------- saw bench in the dashboard shell ---------------- #
     d = new_page(browser, errors)
     d.goto(base + "/")
-    expect(d.locator("#tabs button")).to_have_text(["Sales", "Engineering", "Saw Bench", "Inventory", "Accounting"])
+    expect(d.locator("#tabs button")).to_have_text(["Sales", "Engineering", "Saw Bench", "Inventory", "Accounting", "Admin"])
     expect(d.locator("#p-sales")).to_have_class(re.compile("on"))
     d.click("#tab-engineering")
     expect(d.frame_locator("#p-engineering iframe").locator("#jobsel")).to_be_visible()

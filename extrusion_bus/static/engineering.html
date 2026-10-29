@@ -22,7 +22,7 @@
     <div id="info" class="card" style="min-height:3em">Click a member in either drawing.</div>
     <h3>Bill of materials</h3><div id="bom"></div>
     <div id="quotebox"></div>
-    <div class="row" style="margin:12px 0"><button class="good" id="release" disabled>Release to Shop Floor</button></div>
+    <div class="row" style="margin:12px 0"><label class="field" style="flex:0 1 180px"><span>Needed in (days)</span><input type="number" id="due" min="0" max="365" placeholder="today"></label><button class="good" id="release" disabled>Release to Shop Floor</button></div>
     <div id="released"></div>
   </div>
 </div>
@@ -200,7 +200,8 @@ $('#release').addEventListener('click', async () => {
   const btn = $('#release');
   if (armed !== jobId) { armed = jobId; btn.textContent = 'Tap again to confirm release'; setTimeout(() => { if (armed === jobId) { armed = null; btn.textContent = 'Release to Shop Floor'; } }, 5000); return; }
   armed = null; btn.disabled = true;
-  const out = await guard(() => api('/api/engineering/release', { method: 'POST', body: { job_id: jobId, overrides: overrides() } }));
+  const out = await guard(() => api('/api/engineering/release', { method: 'POST', body: Object.assign({ job_id: jobId, overrides: overrides() }, $('#due').value !== '' ? { due_in_days: parseFloat($('#due').value) } : {}) }));
+  if (out && out.po_alerts && out.po_alerts.length) toast('PO needed: ' + out.po_alerts.map(a => `${a.suggested_order_sticks} x ${a.profile} (${a.status.replace('_', ' ').toLowerCase()})`).join(', '), true);
   if (out) { toast(`Released: cart ${out.cart_addr}`); await loadJobs(jobId); await openJob(jobId); loadBatchable(); }
   btn.textContent = 'Release to Shop Floor'; if (last) btn.disabled = !(last.report.is_ready_for_engineering && !last.error);
 });

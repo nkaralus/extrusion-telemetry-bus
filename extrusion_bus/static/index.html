@@ -3,7 +3,13 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Extrusion Bus</title><link rel="stylesheet" href="/static/app.css">
 </head><body>
-<nav class="tabs" role="tablist" id="tabs"></nav>
+<div id="login" class="login" hidden><div class="card" role="dialog" aria-label="Sign in"><h2>Sign in</h2>
+  <p class="muted" id="login-note">Use the account your shop admin created for you.</p>
+  <label class="field"><span>Username</span><input type="text" id="l-user" autocomplete="username" autocapitalize="none"></label>
+  <label class="field" style="margin-top:8px"><span>Secret</span><input type="password" id="l-secret" autocomplete="current-password"></label>
+  <div id="l-err" class="muted" style="color:var(--bad);min-height:1.4em;margin:6px 0"></div>
+  <button class="primary" id="l-go" style="width:100%">Sign in</button></div></div>
+<nav class="tabs" role="tablist" id="tabs" hidden></nav>
 <div id="p-sales" class="panel"><iframe class="view" data-src="/sales" title="Sales"></iframe></div>
 <div id="p-engineering" class="panel"><iframe class="view" data-src="/engineering" title="Engineering"></iframe></div>
 <div id="p-bench" class="panel"><div class="wrap">
@@ -33,25 +39,72 @@
       <label class="field"><span>End B</span><select id="a-eb"></select></label></div>
     <button class="primary" id="a-go" style="margin-top:8px">Register &amp; label</button><div id="a-out"></div></div>
 </div></div>
-<div id="p-inventory" class="panel"><div class="wrap"><h2>Inventory</h2><div id="inv-racks"></div><h3>Label printer</h3><div id="inv-printer" class="card"></div><h3>Reorder watch</h3><div id="inv-reorder"></div>
-  <div class="card"><h3>Vendor order / receipt</h3><div class="grid g3"><select id="po-prof"></select><input type="text" id="po-qty" value="5" inputmode="numeric"><div class="row"><button class="sm primary" id="po-order">Order</button><button class="sm" id="po-recv">Receive</button></div></div></div>
+<div id="p-inventory" class="panel"><div class="wrap"><h2>Inventory</h2><div id="inv-racks"></div><h3>Label printer</h3><div id="inv-printer" class="card"></div><h3>Reorder watch <span class="muted" style="font-weight:400;font-size:.85rem">(history + released jobs)</span></h3><div id="inv-reorder"></div><h3>PO draft</h3><div id="inv-podraft"></div>
+  <div class="card po-controls"><h3>Vendor order / receipt</h3><div class="grid g3"><select id="po-prof"></select><input type="text" id="po-qty" value="5" inputmode="numeric"><div class="row"><button class="sm primary" id="po-order">Order</button><button class="sm" id="po-recv">Receive</button></div></div></div>
   <h3>Stock <select id="inv-filter" style="width:auto;min-height:40px"><option value="">all</option><option value="remnant">drops</option><option value="raw">virgin</option></select></h3><div id="inv-stock"></div></div></div>
+<div id="p-admin" class="panel"><div class="wrap"><h2>Admin</h2>
+  <div class="card"><h3>New user</h3><div class="grid g3"><input type="text" id="u-name" placeholder="username" autocapitalize="none"><select id="u-role"></select><input type="password" id="u-secret" placeholder="secret (8+ chars)" autocomplete="new-password"></div>
+    <button class="primary sm" id="u-add" style="margin-top:8px">Create user</button></div>
+  <h3>Users</h3><div id="adm-users"></div>
+  <div class="card"><h3>Bench device token</h3><p class="muted">For a tablet or macro-pad daemon. Shown once.</p>
+    <div class="grid g3"><select id="t-role"><option>operator</option><option>engineer</option><option>rep</option></select><input type="text" id="t-label" placeholder="label, e.g. bench-1"><input type="text" id="t-days" value="90" inputmode="numeric"></div>
+    <button class="sm" id="t-mint" style="margin-top:8px">Mint token</button><div id="t-out"></div></div>
+  <h3>Active sessions &amp; devices</h3><div id="adm-sessions"></div>
+  <h3>Audit log <select id="adm-filter" style="width:auto;min-height:36px"><option value="">all</option></select></h3><div id="adm-audit"></div></div></div>
 <div id="p-accounting" class="panel"><div class="wrap"><h2>Accounting</h2><div id="acc-sum"></div><h3>Scrap ledger</h3><div id="acc-scrap"></div><h3>Job carts</h3><div id="acc-carts"></div><h3>Unaccounted (ghost drops)</h3><div id="acc-un"></div></div></div>
 <script src="/static/common.js"></script>
 <script>
 const { $, $$, h, api, fmtIn, money, toast, guard } = X;
-const TABS = [['sales', 'Sales'], ['engineering', 'Engineering'], ['bench', 'Saw Bench'], ['inventory', 'Inventory'], ['accounting', 'Accounting']];
-const LOADERS = { bench: loadBench, inventory: loadInventory, accounting: loadAccounting };
+const TABS = [['sales', 'Sales'], ['engineering', 'Engineering'], ['bench', 'Saw Bench'], ['inventory', 'Inventory'], ['accounting', 'Accounting'], ['admin', 'Admin']];
+const ALIASES = { saw: 'bench' };                               // #saw is an alias for #bench
+const ROLE_TABS = { rep: ['sales'], engineer: ['engineering', 'inventory'], operator: ['bench'], admin: TABS.map(t => t[0]) };
+const LOADERS = { bench: loadBench, inventory: loadInventory, accounting: loadAccounting, admin: loadAdmin };
+let me = null, allowed = TABS.map(t => t[0]);
+function canon(name) { return ALIASES[name] || name; }
 function show(name) {
-  if (!TABS.some(t => t[0] === name)) name = 'sales';
-  $$('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  name = canon(name);
+  if (!allowed.includes(name)) name = allowed[0];
+  $$('#tabs button[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + name));
   const f = $('#p-' + name + ' iframe'); if (f && !f.src) f.src = f.dataset.src;
   if (LOADERS[name]) guard(LOADERS[name]);
   if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
 }
-for (const [id, label] of TABS) $('#tabs').append(h('button', { role: 'tab', 'data-tab': id, id: 'tab-' + id, 'aria-selected': 'false', onclick: () => show(id) }, label));
 window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+
+/* ---------- sign-in ---------- */
+function showLogin(msg) {
+  $('#login').hidden = false; $('#tabs').hidden = true; $$('.panel').forEach(p => p.classList.remove('on'));
+  if (msg) $('#l-err').textContent = msg;
+  $('#l-user').focus();
+}
+X.onUnauthorized = () => showLogin('Your session ended. Please sign in again.');
+async function doLogin() {
+  $('#l-err').textContent = '';
+  try {
+    const r = await api('/api/auth/login', { method: 'POST', body: { username: $('#l-user').value, secret: $('#l-secret').value }, noRedirect: true });
+    const next = new URLSearchParams(location.search).get('next') || '';
+    const np = next.split('?')[0].split('#')[0];                 // /sales?job=X -> /sales (the page remembers its job)
+    const dest = np === '/sales' ? '/#sales' : np === '/engineering' ? '/#engineering' : '/' + location.hash;
+    if (dest === location.pathname + location.search + location.hash) location.reload();   // a fragment-only change would not reload
+    else location.href = dest;
+  } catch (e) { $('#l-err').textContent = e.message; $('#l-secret').value = ''; }
+}
+$('#l-go').onclick = doLogin;
+$('#l-secret').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+async function logout() { try { await api('/api/auth/logout', { method: 'POST', noRedirect: true }); } catch (_) {} location.href = '/'; }
+
+async function boot() {
+  let cfg; try { cfg = await (await fetch('/api/auth/config')).json(); } catch (_) { cfg = { auth: false }; }
+  try { me = await api('/api/auth/me', { noRedirect: true }); }
+  catch (e) { if (e.status === 401) { showLogin(); return; } throw e; }
+  allowed = cfg.auth ? ROLE_TABS[me.role] : TABS.map(t => t[0]);
+  for (const [id, label] of TABS) if (allowed.includes(id)) $('#tabs').append(h('button', { role: 'tab', 'data-tab': id, id: 'tab-' + id, 'aria-selected': 'false', onclick: () => show(id) }, label));
+  if (cfg.auth) $('#tabs').append(h('span', { class: 'who' }, h('span', { id: 'whoami' }, `${me.username} · ${me.role}`), h('button', { id: 'logout', class: 'sm', onclick: logout }, 'Sign out')));
+  for (const sel of $$('.po-controls')) sel.hidden = !(me.role === 'admin');
+  $('#tabs').hidden = false;                                   // only now: session confirmed, this role's tabs exist
+  show(location.hash.slice(1) || allowed[0]);
+}
 
 /* ---------- saw bench (live over WebSocket, HTTP fallback) ---------- */
 let fid = null, cur = null, busy = false, lastPhase = '', ws = null, wsOpen = false, station = 'SAW_1', retry = 0;
@@ -71,6 +124,7 @@ function send(m) { if (wsOpen) { ws.send(JSON.stringify(m)); return true; } retu
 function onMsg(m) {
   if (m.type === 'state') renderState(m);
   else if (m.type === 'event') showEvent(m);
+  else if (m.type === 'po_alert') { for (const a of m.alerts) toast(`PO alert: ${a.profile} ${a.status.replace('_', ' ').toLowerCase()} - order ${a.suggested_order_sticks} stick(s)`, a.status !== 'EARLY_PO'); }
   else if (m.type === 'print') { $('#b-print').textContent = `label ${m.addr}: ${m.status}`; if (m.status !== 'sent') toast(`Printer: ${m.error || m.status}`, true); }
   else if (m.type === 'error') { busy = false; toast(`${m.code}: ${m.message}`, true); }
 }
@@ -166,8 +220,9 @@ async function loadInventory() {
   const [inv, alerts] = await Promise.all([api('/api/inventory'), api('/api/procurement/reorder')]);
   $('#inv-racks').replaceChildren(h('div', { class: 'grid g2' }, inv.racks.map(r => h('div', { class: 'card' }, h('b', {}, r.profile), ` ${r.racked}/${r.slots} drops${r.full ? ' · FULL (new remainders go to scrap)' : ''}`,
     h('div', { class: 'bargauge' + (r.full ? ' full' : '') }, h('i', { style: `width:${Math.min(100, r.ratio * 100)}%` }))))));
-  $('#inv-reorder').replaceChildren(table(['Profile', 'Status', 'On hand', 'On order', 'Burn/day', 'Cover (d)', 'Lead (d)', 'Order'], alerts.map(a =>
-    [a.profile, h('span', { class: 'chip' }, a.status), a.on_hand_sticks, a.on_order_sticks, a.burn_sticks_per_day, a.days_of_cover == null ? '—' : a.days_of_cover, a.lead_time_days, a.suggested_order_sticks || ''])));
+  $('#inv-reorder').replaceChildren(table(['Profile', 'Status', 'On hand', 'On order', 'Burn/day', 'Committed', 'Cover (d)', 'Order by (d)', 'Lead (d)', 'Suggest'], alerts.map(a =>
+    [a.profile, h('span', { class: 'chip st-' + a.status, title: a.reason }, a.status.replace('_', ' ')), a.on_hand_sticks, a.on_order_sticks, a.burn_sticks_per_day, a.committed_sticks || '', a.days_of_cover == null ? '—' : a.days_of_cover, a.order_by_in_days == null ? '' : a.order_by_in_days, a.lead_time_days, a.suggested_order_sticks || ''])));
+  loadPoDraft();
   const sel = $('#po-prof'); if (!sel.options.length) for (const r of inv.racks) sel.append(h('option', { value: r.profile }, r.profile));
   window._inv = inv; renderStock();
 }
@@ -180,6 +235,15 @@ $('#inv-filter').onchange = renderStock;
 for (const [id, path] of [['po-order', 'order'], ['po-recv', 'receive']]) $('#' + id).onclick = () => guard(async () => {
   await api('/api/procurement/' + path, { method: 'POST', body: { profile: $('#po-prof').value, qty: parseInt($('#po-qty').value, 10) } });
   toast(path === 'order' ? 'Order placed' : 'Sticks received'); await loadInventory(); });
+async function loadPoDraft() {
+  const box = $('#inv-podraft');
+  try {
+    const d = await api('/api/procurement/po-draft');
+    box.replaceChildren(d.lines.length ? table(['Profile', 'Qty', 'Status', 'Order by', 'Jobs', ''], d.lines.map(l => [l.profile, l.qty, h('span', { class: 'chip st-' + l.status }, l.status.replace('_', ' ')),
+      l.order_by_in_days == null ? '' : (l.order_by_in_days <= 0 ? 'today' : `in ${l.order_by_in_days} d`), (l.jobs || []).join(', '),
+      me && me.role === 'admin' ? h('button', { class: 'sm primary', 'data-po': l.profile, onclick: () => guard(async () => { await api('/api/procurement/order', { method: 'POST', body: { profile: l.profile, qty: l.qty } }); toast(`PO placed: ${l.qty} x ${l.profile}`); await loadInventory(); }) }, 'Place PO') : ''])) : h('p', { class: 'muted' }, 'Nothing to order right now.'));
+  } catch (e) { box.replaceChildren(h('p', { class: 'muted' }, e.message)); }
+}
 function table(head, rows) {
   return h('table', {}, h('thead', {}, h('tr', {}, head.map(t => h('th', {}, t)))), h('tbody', {}, rows.length ? rows.map(r => h('tr', {}, r.map(c => h('td', {}, c == null ? '' : c)))) : h('tr', {}, h('td', { colspan: head.length, class: 'muted' }, 'none'))));
 }
@@ -194,5 +258,29 @@ async function loadAccounting() {
   $('#acc-carts').replaceChildren(table(['Job', 'Cart', 'Pieces cut'], inv.carts.map(c => [c.job_id, c.addr, c.pieces])));
   $('#acc-un').replaceChildren(table(['Addr', 'Profile', 'Long', 'By'], inv.unaccounted.map(u => [u.addr, u.profile, fmtIn(u.long_point_in), u.reported_by])));
 }
-show(location.hash.slice(1) || 'sales');
+
+/* ---------- admin ---------- */
+for (const r of ['rep', 'engineer', 'operator', 'admin']) $('#u-role').append(h('option', { value: r }, r));
+async function loadAdmin() {
+  const [users, sessions, audit] = await Promise.all([api('/api/admin/users'), api('/api/admin/sessions'), api('/api/admin/audit?limit=100' + ($('#adm-filter').value ? '&action=' + $('#adm-filter').value : ''))]);
+  $('#adm-users').replaceChildren(table(['User', 'Role', 'State', 'Last login', ''], users.map(u => [u.username,
+    h('select', { 'data-role-of': u.username, onchange: e => guard(async () => { await api(`/api/admin/users/${u.username}/role`, { method: 'POST', body: { role: e.target.value } }); toast('Role changed'); loadAdmin(); }) }, ['rep', 'engineer', 'operator', 'admin'].map(r => h('option', { value: r, selected: r === u.role || null }, r))),
+    u.active ? 'active' : 'DISABLED', u.last_login_ts ? new Date(u.last_login_ts * 1000).toLocaleString() : '—',
+    h('span', { class: 'row' }, h('button', { class: 'sm', 'data-toggle': u.username, onclick: () => guard(async () => { await api(`/api/admin/users/${u.username}/active`, { method: 'POST', body: { active: !u.active } }); loadAdmin(); }) }, u.active ? 'Disable' : 'Enable'),
+      h('button', { class: 'sm', onclick: () => { const s = window.prompt(`New secret for ${u.username} (8+ chars)`); if (s) guard(async () => { await api(`/api/admin/users/${u.username}/secret`, { method: 'POST', body: { secret: s } }); toast('Secret reset; their sessions ended'); }); } }, 'Reset secret'))])));
+  $('#adm-sessions').replaceChildren(table(['Who', 'Role', 'Kind', 'Expires', ''], sessions.map(s => [s.user, s.role, s.kind + (s.label ? ' · ' + s.label : ''), new Date(s.expires_ts * 1000).toLocaleString(),
+    h('button', { class: 'sm', onclick: () => guard(async () => { await api(`/api/admin/sessions/${s.id}/revoke`, { method: 'POST' }); loadAdmin(); }) }, 'Revoke')])));
+  const f = $('#adm-filter'); const seen = new Set([...f.options].map(o => o.value));
+  for (const a of audit) if (!seen.has(a.action)) { seen.add(a.action); f.append(h('option', { value: a.action }, a.action)); }
+  $('#adm-audit').replaceChildren(table(['When', 'Who', 'Action', 'Detail'], audit.map(a => [new Date(a.ts * 1000).toLocaleString(), `${a.user} (${a.role || '-'})`, a.action,
+    Object.entries(a).filter(([k]) => !['seq', 'ts', 'user', 'role', 'action', 'ip'].includes(k)).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' ')])));
+}
+$('#adm-filter').onchange = () => guard(loadAdmin);
+$('#u-add').onclick = () => guard(async () => { await api('/api/admin/users', { method: 'POST', body: { username: $('#u-name').value, role: $('#u-role').value, secret: $('#u-secret').value } }); $('#u-name').value = $('#u-secret').value = ''; toast('User created'); loadAdmin(); });
+$('#t-mint').onclick = () => guard(async () => {
+  const t = await api('/api/admin/tokens', { method: 'POST', body: { role: $('#t-role').value, label: $('#t-label').value, days: parseFloat($('#t-days').value) } });
+  $('#t-out').replaceChildren(h('div', { class: 'card ok' }, h('b', {}, `${t.label} (${t.role}) - copy it now, it is not shown again`), h('div', { class: 'tokenbox', id: 'tokenvalue' }, t.token)));
+  loadAdmin();
+});
+boot();
 </script></body></html>

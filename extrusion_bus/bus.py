@@ -290,14 +290,14 @@ class FabricationBus:
         return None, [], naks, feedback
 
     def frame_from_specs(self, job_id: str, specs: List[CutSpec], piece_jobs: Optional[List[str]] = None,
-                         note: str = "") -> Frame:
+                         note: str = "", due_ts: Optional[float] = None) -> Frame:
         """Open a frame on an already-validated piece list (compiled nest, scratch simulation).
 
         ``piece_jobs`` (batch runs) names the job that owns each piece; carts are opened for all of them.
         """
         if piece_jobs is not None and len(piece_jobs) != len(specs):
             raise ValueError("piece_jobs must be parallel to specs")
-        frame = Frame(job_id=job_id, piece_jobs=list(piece_jobs or []), note=note)
+        frame = Frame(job_id=job_id, piece_jobs=list(piece_jobs or []), note=note, due_ts=due_ts)
         frame.advance(SlotId.SLOT_1_TASK)
         frame.advance(SlotId.SLOT_2_PLAN)
         frame.pending = list(specs)

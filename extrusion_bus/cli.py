@@ -63,6 +63,71 @@ def run_demo(state_path: Path, scope: str, job_id: str) -> int:
     return 0
 
 
+def run_user_command(args) -> int:
+    import getpass
+    from .auth import AuthError, AuthService
+    from .store import StoreError
+    if not args.db:
+        print("error: give --db or set EXTBUS_DB")
+        return 2
+    try:
+        reg = Registry.load(args.db)
+    except (StoreError, OSError) as exc:
+        print(f"error: {exc}")
+        return 2
+    try:
+        svc = AuthService(reg)
+        if args.cmd == "user-list":
+            for u in svc.list_users():
+                print(f"{u['username']:<20} {u['role']:<9} {'active' if u['active'] else 'DISABLED'}")
+            return 0
+        secret = sys.stdin.readline().rstrip("\n") if args.secret_stdin else getpass.getpass("secret: ")
+        if args.cmd == "user-add":
+            svc.create_user(args.username, args.role, secret, by="cli")
+            print(f"created {args.username.strip().lower()} ({args.role})")
+        else:
+            svc.set_secret(args.username.strip().lower(), secret)
+            print(f"secret reset for {args.username.strip().lower()} (their sessions were ended)")
+        reg.append_audit(user="(cli)", role="admin", ip="", action="CLI_" + args.cmd.upper().replace("-", "_"), target=args.username)
+        return 0
+    except AuthError as exc:
+        print(f"error: {exc}")
+        return 2
+    finally:
+        reg.close()
+
+
+def run_db_command(args) -> int:
+    from .store import SqliteStore, StoreError, check_db, export_json, import_json
+    if not args.db:
+        print("error: give --db or set EXTBUS_DB")
+        return 2
+    try:
+        if args.cmd == "export-json":
+            n = export_json(args.db, args.out, include_sessions=args.include_sessions)
+            print(f"exported {args.db} -> {args.out} ({n} bytes)")
+        elif args.cmd == "import-json":
+            reg = import_json(args.json, args.db, replace=args.replace)
+            print(f"imported {args.json} -> {args.db} (stock={len(reg.state.stock)}, jobs={len(reg.state.carts)})")
+            reg.close()
+        elif args.cmd == "backup-db":
+            store = SqliteStore(args.db, take_lock=False)
+            try:
+                store.backup_to(args.out)
+            finally:
+                store.close()
+            print(f"backup {args.db} -> {args.out}")
+        else:
+            r = check_db(args.db)
+            print(("integrity ok" if r["integrity_ok"] else "INTEGRITY FAILED") + f" ({r['journal_mode']})")
+            print(" ".join(f"{k}={v}" for k, v in r["counts"].items()))
+            return 0 if r["integrity_ok"] else 2
+    except (StoreError, OSError) as exc:
+        print(f"error: {exc}")
+        return 2
+    return 0
+
+
 def run_printer_test(target: str, style: str, feed: str, png: Optional[str]) -> int:
     from .printer import parse_target, render_escpos_label, render_label_image
     from .registry import StockItem
@@ -90,12 +155,40 @@ def main(argv: Optional[List[str]] = None) -> int:
     d.add_argument("--scope", default=DEFAULT_SCOPE)
     d.add_argument("--job", default="JOB-104")
     sub.add_parser("serve", help="run the FastAPI bus (EXTBUS_STATE, EXTBUS_PORT, EXTBUS_PARSER, EXTBUS_PRINTER)")
+    for name, helptext in (("user-add", "create a user (offline; the server must be stopped)"),
+                           ("user-list", "list users (offline)"),
+                           ("user-passwd", "reset a user's secret (offline)")):
+        up = sub.add_parser(name, help=helptext)
+        up.add_argument("--db", default=os.environ.get("EXTBUS_DB") or os.environ.get("EXTBUS_STATE"),
+                        help="database or state file (default: $EXTBUS_DB, then $EXTBUS_STATE)")
+        if name != "user-list":
+            up.add_argument("username")
+            up.add_argument("--secret-stdin", action="store_true", help="read the secret from stdin instead of prompting")
+        if name == "user-add":
+            up.add_argument("--role", required=True, choices=["rep", "engineer", "operator", "admin"])
+    ex = sub.add_parser("export-json", help="portable backup: write the SQLite database as a state_registry.json document")
+    ex.add_argument("--db", default=os.environ.get("EXTBUS_DB"), help="database (default: $EXTBUS_DB)")
+    ex.add_argument("--out", required=True)
+    ex.add_argument("--include-sessions", action="store_true", help="also export login sessions (off by default)")
+    im = sub.add_parser("import-json", help="load a state_registry.json (or an export) into a SQLite database")
+    im.add_argument("--json", required=True)
+    im.add_argument("--db", default=os.environ.get("EXTBUS_DB"))
+    im.add_argument("--replace", action="store_true", help="overwrite a database that already holds data")
+    bk = sub.add_parser("backup-db", help="online, consistent copy of the database (safe while the server runs)")
+    bk.add_argument("--db", default=os.environ.get("EXTBUS_DB"))
+    bk.add_argument("--out", required=True)
+    ck = sub.add_parser("check-db", help="integrity check and row counts (read-only)")
+    ck.add_argument("--db", default=os.environ.get("EXTBUS_DB"))
     pt = sub.add_parser("printer-test", help="send a sample 2x1 label to a printer target")
     pt.add_argument("--target", default="memory", help="net:host[:port] | file:/dev/usb/lp0 | memory")
     pt.add_argument("--style", default="raster", choices=["raster", "native"])
     pt.add_argument("--feed", default="ff", help="ff | gs_ff | none | lines:N")
     pt.add_argument("--save-png", help="also write the rendered label bitmap to this path")
     args = ap.parse_args(argv)
+    if args.cmd in ("user-add", "user-list", "user-passwd"):
+        return run_user_command(args)
+    if args.cmd in ("export-json", "import-json", "backup-db", "check-db"):
+        return run_db_command(args)
     if args.cmd == "printer-test":
         return run_printer_test(args.target, args.style, args.feed, args.save_png)
     if args.cmd == "serve":

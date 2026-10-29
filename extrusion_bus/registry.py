@@ -24,7 +24,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from .physics import KERF_IN, End, guaranteed_square
 
@@ -38,6 +38,7 @@ SUBNETS: Dict[str, str] = {
 }
 _NETS = {k: ipaddress.ip_network(v) for k, v in SUBNETS.items()}
 JOURNAL_CAP = 5000
+AUDIT_CAP = 50000
 MAX_TERMINAL_FRAMES = 50      # finished/dead frames kept for the audit trail
 MAX_SENT_PRINTS = 100
 
@@ -129,6 +130,12 @@ class StockItem(BaseModel):
     bin_location: Optional[str] = None
     allocated_job_id: Optional[str] = None
     legacy: bool = False  # adopted from the boneyard (lazy-load onboarding)
+    _dirty: bool = PrivateAttr(default=True)   # changed since the last commit (SQLite backend)
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+        if not name.startswith("_"):
+            self._dirty = True
 
 
 class Station(BaseModel):
@@ -183,6 +190,9 @@ class RegistryState(BaseModel):
     intakes: Dict[str, dict] = Field(default_factory=dict)  # latest sales intake + readiness per job
     frames: Dict[str, dict] = Field(default_factory=dict)   # {frame_id: {"seq": n, "frame": Frame json}}
     print_queue: List[dict] = Field(default_factory=list)   # transactional outbox of label jobs
+    users: Dict[str, dict] = Field(default_factory=dict)    # username -> {role, scrypt hash, ...}
+    sessions: Dict[str, dict] = Field(default_factory=dict) # sha256(token) -> {user, role, expires, ...}
+    audit: List[dict] = Field(default_factory=list)         # who did what (append-only)
 
 
 def rack_slot(profile: Profile, guaranteed_in: float) -> str:
@@ -205,6 +215,7 @@ class Registry:
         state: Optional[RegistryState] = None,
         path: Optional[os.PathLike] = None,
         clock: Callable[[], float] = time.time,
+        store=None,
     ) -> None:
         self.path: Optional[Path] = Path(path) if path else None
         self.clock = clock
@@ -212,7 +223,21 @@ class Registry:
         self._depth = 0
         self._post: List[Callable[[], None]] = []
         self.recovered_from_backup = False
+        self.store = store
+        loaded = False
+        if self.store is None and self.path is not None:
+            from .store import SqliteStore, StoreError, is_sqlite_path
+            if is_sqlite_path(self.path):
+                self.store = SqliteStore(self.path)
+                if state is None:
+                    state = self.store.load_state()
+                    loaded = state is not None
+                elif self.store.has_data():
+                    self.store.close()
+                    raise StoreError(f"{self.path} already holds data; refusing to overwrite it with a new state")
         self.state = state or RegistryState()
+        if self.store is not None:
+            self.store.attach(self.state, loaded=loaded)
         if not self.state.control:
             self._bootstrap()
 
@@ -231,6 +256,15 @@ class Registry:
     @classmethod
     def load(cls, path: os.PathLike, clock: Callable[[], float] = time.time) -> "Registry":
         p = Path(path)
+        from .store import is_sqlite_path
+        if is_sqlite_path(p):                        # SQLite: the ctor loads (or creates) the database
+            reg = cls(path=p, clock=clock)
+            missing = [d for d in default_profiles() if d.part_number not in reg.state.profiles]
+            if missing:
+                with reg.transaction():
+                    for d in missing:
+                        reg.state.profiles[d.part_number] = d
+            return reg
         if p.exists():
             from_bak = False
             try:
@@ -258,7 +292,15 @@ class Registry:
 
     def save(self) -> None:
         with self._lock:
-            self._write()
+            if self.store is not None:
+                self.store.commit(self)
+            else:
+                self._write()
+
+    def close(self) -> None:
+        """Release the SQLite database (checkpoint + single-writer lock).  No-op for the JSON engine."""
+        if self.store is not None:
+            self.store.close()
 
     def _write(self) -> None:
         if self.path is None:
@@ -313,17 +355,30 @@ class Registry:
                 finally:
                     self._depth -= 1
                 return
-            snapshot = self.state.model_copy(deep=True)
-            self._depth = 1
-            try:
-                yield self
-                self._write()
-            except BaseException:
-                self.state = snapshot
-                self._post.clear()
-                raise
-            finally:
-                self._depth = 0
+            if self.store is not None:               # SQLite: incremental commit, targeted rollback
+                self.store.commit(self)               # persist anything mutated outside a transaction first
+                self._depth = 1
+                try:
+                    yield self
+                    self.store.commit(self)
+                except BaseException:
+                    self.store.rollback(self)
+                    self._post.clear()
+                    raise
+                finally:
+                    self._depth = 0
+            else:
+                snapshot = self.state.model_copy(deep=True)
+                self._depth = 1
+                try:
+                    yield self
+                    self._write()
+                except BaseException:
+                    self.state = snapshot
+                    self._post.clear()
+                    raise
+                finally:
+                    self._depth = 0
             hooks, self._post = self._post, []      # only reached after a durable commit
             for fn in hooks:
                 try:
@@ -346,7 +401,22 @@ class Registry:
     def log(self, kind: str, **data) -> None:
         self.state.journal.append({"seq": self._next_seq(), "ts": self.clock(), "kind": kind, **data})
         if len(self.state.journal) > JOURNAL_CAP:
-            del self.state.journal[: len(self.state.journal) - JOURNAL_CAP]
+            k = len(self.state.journal) - JOURNAL_CAP
+            del self.state.journal[:k]
+            if self.store is not None:
+                self.store.note_trim("journal", k)
+
+    def append_audit(self, **entry) -> dict:
+        """Append-only who-did-what record (logins, releases, overrides, admin actions)."""
+        with self.transaction():
+            rec = {"seq": self._next_seq(), "ts": self.clock(), **entry}
+            self.state.audit.append(rec)
+            if len(self.state.audit) > AUDIT_CAP:
+                k = len(self.state.audit) - AUDIT_CAP
+                del self.state.audit[:k]
+                if self.store is not None:
+                    self.store.note_trim("audit", k)
+            return rec
 
     def _used_addrs(self) -> set:
         s = self.state
@@ -587,6 +657,8 @@ class Registry:
                 if j["id"] == job_id:
                     j.update(status="sent", sent_ts=self.clock(), last_error="")
             sent = [j for j in self.state.print_queue if j["status"] == "sent"]
+            for j in sent[:-5]:                        # only the last few keep their bitmap (reprints re-render)
+                j["payload_b64"] = ""
             drop = {j["id"] for j in sent[: max(0, len(sent) - MAX_SENT_PRINTS)]}
             self.state.print_queue = [j for j in self.state.print_queue if j["id"] not in drop]
 
@@ -620,10 +692,12 @@ class Registry:
                     n += 1
             return n
 
-    def save_intake(self, job_id: str, package: dict, report: dict) -> None:
+    def save_intake(self, job_id: str, package: dict, report: dict, owner: Optional[str] = None) -> None:
         with self.transaction():
             rec = self.state.intakes.get(job_id, {})
             rec.update({"ts": self.clock(), "package": package, "report": report})
+            if owner is not None:
+                rec.setdefault("owner", owner)           # first writer owns the job (rep access control)
             self.state.intakes[job_id] = rec
             self.log("INTAKE", job_id=job_id, ready=report.get("is_ready_for_engineering"))
 

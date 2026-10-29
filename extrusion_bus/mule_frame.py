@@ -135,6 +135,7 @@ class Frame(BaseModel):
     piece_jobs: List[str] = Field(default_factory=list)   # batch frames: job that owns each pending piece
     station: Optional[str] = None                          # saw station this frame is attached to
     note: str = ""                                         # e.g. "rebuilt from cart after restart"
+    due_ts: Optional[float] = None                         # when the shop needs this job's material (procurement lookahead)
     excluded: List[str] = Field(default_factory=list)   # source addrs rejected for the current piece
     step_counter: int = 0
     current: Optional[Slot3Execute] = None

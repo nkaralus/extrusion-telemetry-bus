@@ -29,13 +29,16 @@
     return 'HTTP ' + status;
   }
   async function api(path, opt = {}) {
-    const o = { method: opt.method || 'GET', headers: {} };
+    const o = { method: opt.method || 'GET', headers: { 'x-extbus': '1' }, credentials: 'same-origin' };
     if (opt.body instanceof FormData) o.body = opt.body;
     else if (opt.body !== undefined) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(opt.body); }
     const r = await fetch(path, o);
     let data = null;
     try { data = await r.json(); } catch (_) { /* empty body */ }
-    if (!r.ok) { const e = new Error(errText(data, r.status)); e.status = r.status; e.detail = data && data.detail; throw e; }
+    if (!r.ok) {
+      if (r.status === 401 && !opt.noRedirect) window.X.onUnauthorized();
+      const e = new Error(errText(data, r.status)); e.status = r.status; e.detail = data && data.detail; throw e;
+    }
     return data;
   }
   const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -53,5 +56,7 @@
   }
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
   async function guard(fn) { try { return await fn(); } catch (e) { toast(e.message, true); return null; } }
-  window.X = { $, $$, h, s, api, fmtIn, money, toast, debounce, guard };
+  // pages opened on their own bounce to the login screen; the dashboard shell overrides this to show it in place
+  const onUnauthorized = () => { (window.top || window).location.href = '/?login=1&next=' + encodeURIComponent(location.pathname + location.search); };
+  window.X = { $, $$, h, s, api, fmtIn, money, toast, debounce, guard, onUnauthorized };
 })();

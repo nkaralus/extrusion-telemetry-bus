@@ -32,7 +32,9 @@ No cloud. No subscription. FastAPI + `state_registry.json` on a Pi / office PC /
 | `static/` | Phase 4: zero-dependency SPA: `index.html` (shell, Saw Bench, Inventory, Accounting), `sales.html`, `engineering.html`, `common.js`, `app.css` |
 | `labels.py` | ESC/POS label + QR for racked remnants |
 | `server.py` | FastAPI endpoints |
-| `cli.py` | `extbus demo`, `extbus serve` |
+| `store.py` | Phase 6: SQLite (WAL) engine: incremental commits, targeted rollback, single-writer lock, export/import |
+| `auth.py` | Phase 6: users, sessions, device tokens, lockout, the default-deny role policy |
+| `cli.py` | `extbus demo`, `serve`, `export-json`, `import-json`, `backup-db`, `check-db`, `user-add`, `user-list`, `user-passwd`, `printer-test` |
 
 ## Subnets (10.0.0.0/8)
 
@@ -76,9 +78,11 @@ Also: `POST /cut/verify`, `/cut/complete`, `/cut/miscut`, `/drop/missing`, `GET 
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 270 tests (browser tests need: playwright install chromium)
+pytest                      # 366 tests (browser tests need: playwright install chromium)
+EXTBUS_TEST_BACKEND=sqlite pytest   # the same suite against the SQLite engine (12 JSON-engine-specific tests skip)
 extbus demo                 # seeded shop, full order, temp registry
-EXTBUS_STATE=/srv/shop/state_registry.json EXTBUS_MEDIA=/srv/shop/media extbus serve     # :8000, open /
+EXTBUS_DB=/srv/shop/bus.db EXTBUS_MEDIA=/srv/shop/media extbus serve     # :8000, open /   (SQLite + sign-in, the production setup)
+EXTBUS_STATE=/srv/shop/state_registry.json extbus serve                  # legacy JSON engine (still supported)
 ```
 
 Parser: `EXTBUS_PARSER=auto|ollama|rules` (default `auto`: Ollama `qwen2.5:3b` at `127.0.0.1:11434`, falling back to the rule parser only if the model server is unreachable; malformed model output is NAK'd, never silently replaced). Override with `EXTBUS_MODEL`, `EXTBUS_OLLAMA`.
@@ -163,19 +167,56 @@ Open `http://<server>:8000/`: tabs **Sales | Engineering | Saw Bench | Inventory
 
 **Batch nesting.** In Engineering, open *Shift batch*, tick two or more released jobs, *Compile batch* (`POST /api/engineering/batch-compile`) to see **back-to-back vs batched** (virgin sticks, drops used and created, lead cuts skipped, scrap lb, yield %), then *Release batch* (`.../batch-release`). The compiler tries pooled best-fit-decreasing, pooled grouped-by-miter, and the back-to-back order itself, so the batch is never worse than the baseline it reports. The batch runs as ONE frame (`BATCH-xxxxxx`) that owns stock reservations, while each piece is credited to its own job's cart (`10.4.1.x`) and scrap is attributed to its own job; the member jobs' frames are retired in the same commit. Yield % = piece length / (piece length + scrapped leftover length); racked leftovers count as inventory, not waste. Release is refused if any piece cannot be cut from current stock.
 
+## Phase 6: SQLite, sign-in and roles, procurement lookahead
+
+### SQLite storage (`EXTBUS_DB=/srv/shop/bus.db`)
+The registry still works on an in-memory copy (fast reads, the API every module uses). What changed is how it reaches disk: the JSON engine rewrote and fsynced the **whole** state file on every commit; the SQLite engine writes only the rows that changed, in one WAL transaction (`synchronous=FULL`, so an acknowledged cut survives a power cut). Measured here with ~1,000 finished jobs of history (a 12 MB file): **one small commit 561 ms on JSON vs 5 ms on SQLite**; a full acknowledged cut (gates + commit + frame + restage) about 10 ms.
+
+How it stays correct: dict collections are tracked (any access marks the key; `StockItem` also flags attribute edits), append-only lists are written by watermark, small lists compare whole; each commit compares touched rows with what is stored and writes only differences. Rollback re-reads the touched rows from the database, so memory returns to the last *committed* state. The whole existing suite runs unchanged against both engines (`EXTBUS_TEST_BACKEND=sqlite`), plus real-process crash tests (killed inside the commit, SIGKILL after an acknowledged commit), a second-process lock test, and a concurrent-reader test proving WAL never shows half a transaction.
+
+One server process owns a database (`<db>.lock`); other processes may read at any time (`export-json`, `backup-db`, `check-db` never block it). Moving an existing shop over:
+
+```bash
+extbus import-json --json state_registry.json --db /srv/shop/bus.db     # refuses a non-empty DB unless --replace
+EXTBUS_DB=/srv/shop/bus.db extbus serve
+extbus export-json --db /srv/shop/bus.db --out backup.json               # portable; the same document the JSON engine reads
+extbus backup-db   --db /srv/shop/bus.db --out bus-backup.db             # online, consistent
+extbus check-db    --db /srv/shop/bus.db                                 # integrity + row counts
+```
+`EXTBUS_DB` wins over `EXTBUS_STATE`. Exports omit login sessions (token hashes) unless `--include-sessions`, but **do contain password hashes**: treat them like the database itself.
+
+### Roles (authentication is ON by default)
+| Role | Can | Cannot |
+|---|---|---|
+| `rep` | `/sales` intake, photo upload, customer quotes, **only jobs they created** | everything else |
+| `engineer` | `/engineering`: overrides, wireframe, BOM, release, batches; read all intakes; inventory and procurement (read) | rep intake, the saw bench, placing POs |
+| `operator` | `/bench`: saw controls, macro keys over the WebSocket, legacy-drop adoption, sticker reprints; inventory (read) | sales, engineering, procurement |
+| `admin` | everything: users, device tokens, audit log, scrap ledger, procurement orders, printer admin, recovery | |
+
+On first boot with no users the server creates `admin` with a random secret, prints it once, and refuses to run open. Add people in the **Admin** tab, or offline with `extbus user-add --db bus.db alice --role operator --secret-stdin` (also `user-list`, `user-passwd`). Sign in at `/`; the tabs shown depend on the role (`#saw` is an alias for `#bench`). Scripts and macro-pad daemons use `Authorization: Bearer <token>` (or `?token=` on the WebSocket); an admin can mint long-lived **device tokens** (never admin) for a bench tablet.
+
+Mechanics: scrypt-hashed secrets (8+ chars); 256-bit session tokens stored only as SHA-256; browser cookies are `HttpOnly; SameSite=Strict` (`Secure` over HTTPS); sessions last `EXTBUS_SESSION_HOURS` (default 12, absolute); 5 failures per username or IP in 5 minutes locks that name/IP for 60 s; an unknown username costs the same CPU as a wrong password; cookie-authenticated writes need the `x-extbus` header and a matching `Origin` (CSRF), and the WebSocket checks `Origin` (cross-site hijacking) and re-validates the session on every message; disabling a user, resetting a secret or changing a role takes effect on live sessions at once; the last active admin cannot be disabled or demoted. The policy is one **default-deny table** (`auth.POLICY`); a test fails if any registered route lacks an explicit rule. Consequential actions (logins, denials, releases, POs, adoptions, user and token changes, scrap-ledger views) go to an append-only **audit log** (`/api/admin/audit`). `EXTBUS_AUTH=off` restores the old open behavior (do not do this on a shared network).
+
+**Turning auth on for an existing shop:** intakes created before this release have no owner, so reps cannot see them (engineers and admins can). Reps' new jobs are owned by their creator.
+
+### Procurement lookahead
+The reorder report used to look only backward (sticks pulled / days). It now also looks forward: every released job's uncut pieces (their `10.4.1.x` carts / frames) are dry-run through the nest compiler, chained in due-date order on the stock earlier jobs leave behind, to get the **virgin sticks each job will pull and when**. Stock is then projected day by day: `on hand + open orders landing - max(committed jobs that day, historical baseline)` (the baseline stands in for unannounced work and is never added on top of the same sticks). Statuses, worst of history and projection: `OK` -> **`EARLY_PO`** (the PO must go out within 3 days to land before stock dips under the safety floor `max(min_stock_sticks, burn x 2 d)`) -> `REORDER_NOW` -> `STOCKOUT_RISK` (stock hits zero before an order placed today could arrive). Set when a job is needed with `due_in_days` on release (default: now). Every release, batch release, PO and receipt re-evaluates; a profile that gets **worse** is audited once and pushed live (`po_alert` over the WebSocket, toast in the UI) and the release response lists the POs it now needs. Endpoints: `GET /api/procurement/reorder` (add `?lookahead=false` for history only), `/po-draft` (what, how many, order by when), `/lookahead` (the projected levels). The Inventory tab shows it, and an admin can place the PO from the draft.
+
 ## Assumptions and limits
 
-* **No authentication.** The server is meant for the shop LAN. Anyone who can reach it can upload photos, release jobs and change inventory; put it behind your router, not on the internet.
+* **Access control is not transport security.** Secrets and tokens cross the LAN in clear text over plain HTTP. Serve it behind TLS (a reverse proxy such as Caddy or nginx) if that matters on your network. There is no MFA, no password-complexity beyond length, and login lockout counters live in memory (they reset on a restart).
+* A device token is a bearer credential: whoever holds the string acts as that role until it expires or is revoked.
 * The remote vision backend is written to the API format but was **not run against the live API** (no key in development); its request shape, parser and fallback are unit-tested with a fake transport. The sharpness constant was calibrated on synthetic images: check it on a few real driveway photos before treating it as a hard blocker.
 * Printing was tested against in-memory, file and real TCP-socket transports, never a physical printer. USB works only as a device node (`/dev/usb/lp0` on Linux); direct libusb access is not implemented. Raster layout assumes a 58 mm head (384 dots) at 203 dpi.
 * Browser testing covers Chromium (headless). The pages use only standard DOM/SVG APIs but were not tested in Safari or Firefox.
 * Media is stored on the server's disk and is not part of `state_registry.json`; back up `./media` with it. Photos are never deleted by the bus.
 
 * Kerf is a flat 0.125" per cut (no `k/cos(theta)` correction on miters) and truing waste is not weighed; only remainders and ruined pieces hit the scrap ledger.
-* Persistence is JSON with atomic replace + fsync + `.bak`, not a write-ahead log: the whole file is rewritten on each acknowledged cut. Fine at shop scale; very large frames (hundreds of pieces) make each write slower. Finished frames are pruned to the last 50.
+* SQLite is a single-process engine: one server owns the database and keeps a working copy in memory (a second server on the same file is refused, and two servers would diverge anyway). Mutating the database by hand while the server runs is not supported. The JSON engine remains for compatibility but rewrites the whole file per commit. Finished frames are pruned to the last 50; the audit log is capped at 50,000 entries.
+* The remnant rack subnet `10.2.2.0/24` has 254 addresses, so at most 254 drops can be racked at once; that is a property of the address plan, not of storage.
+* Lookahead is a heuristic: it assumes released jobs are cut from the due date onward, treats the history rate as the floor for unannounced work, and cannot see jobs that are sold but not yet released. Vendor lead times are the per-profile setting, not live quotes.
 * One saw operation per piece (trailing end). Lead ends come from the stock; FLIP_MITER is the operator's override.
 * Nesting is a heuristic (best-fit decreasing over three orderings), not an optimal solver. A remainder that the rack gate scraps is not held back for later pieces in the same job.
 * Burn rate is flat-rate over the trailing window; it does not see scheduled jobs (a pipeline lookahead is not built).
 * Prices are `cost_per_ft` x charged length; no scrap-metal salvage credit and no per-stick vendor pricing tiers.
 * Parametric: front-wall rails and posts only follow the rules above (no gable, no knee-wall variants, no door framing; the door check only gates release). Post length equals the local roof-plane height with no seat allowance; rafters assume a plumb cut across the profile width. Verify these against your build standard before quoting real jobs.
-* SQLite is not implemented.

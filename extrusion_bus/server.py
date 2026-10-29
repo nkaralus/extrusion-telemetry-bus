@@ -16,19 +16,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
+import re
+import secrets
 import threading
+from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
+from .auth import (
+    AUTH_OFF, COOKIE, ROLES, ROLE_PERMS, AuthError, AuthService, Principal, allowed, bearer_token, required_permission,
+)
 from .batch import BatchError, BatchPlan, compile_batch, release_batch
 from .bus import AckResult, AdoptResult, CommitResult, FabricationBus, GateRejected
 from .gates import CutProposal, GateReport
@@ -40,7 +48,7 @@ from .nesting import NestPlan, compile_cut_list
 from .physics import CutSpec, parse_end_condition, parse_inches
 from .parametric import POST_PROFILE, RAFTER_PROFILE, ParametricError, ParametricModel, solve_envelope
 from .printer import PrinterService, label_payload_b64, printer_from_env
-from .procurement import ReorderAlert, reorder_report
+from .procurement import STATUS_RANK, Forecast, ReorderAlert, committed_demand, po_draft, project_levels, reorder_report
 from .recovery import restore
 from .telemetry import MAX_MESSAGE_BYTES, StationHub, event_from_ack, frame_for_station, handle as ws_handle, saw_state
 from .quoting import Quote, quote_job
@@ -193,6 +201,40 @@ class UploadOut(BaseModel):
     report: EngineeringReadinessReport
 
 
+class LoginIn(BaseModel):
+    username: str
+    secret: str
+
+
+class UserIn(BaseModel):
+    username: str
+    role: str
+    secret: str
+
+
+class SecretIn(BaseModel):
+    secret: str
+
+
+class PasswordIn(BaseModel):
+    old: str
+    new: str
+
+
+class ActiveIn(BaseModel):
+    active: bool
+
+
+class RoleIn(BaseModel):
+    role: str
+
+
+class TokenIn(BaseModel):
+    role: str
+    label: str
+    days: float = 90.0
+
+
 class BatchIn(BaseModel):
     job_ids: List[str]
     allow_purchase: bool = False
@@ -202,6 +244,7 @@ class BatchReleaseOut(BaseModel):
     batch_id: str
     frame_id: str
     plan: BatchPlan
+    po_alerts: List[ReorderAlert] = []
 
 
 class ReprintIn(BaseModel):
@@ -227,6 +270,7 @@ class ReleaseIn(BaseModel):
     job_id: str
     overrides: Dict[str, Any] = {}
     max_oc_in: float = 48.0
+    due_in_days: Optional[float] = None      # when the shop needs the material (feeds the procurement lookahead)
 
 
 class ReleaseOut(BaseModel):
@@ -235,6 +279,7 @@ class ReleaseOut(BaseModel):
     frame_id: str
     plan: NestPlan
     report: EngineeringReadinessReport
+    po_alerts: List[ReorderAlert] = []       # profiles that now need a purchase order because of this release
 
 
 def default_parser(registry: Registry) -> PlanParser:
@@ -249,9 +294,10 @@ def default_parser(registry: Registry) -> PlanParser:
 
 def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser] = None,
                analyzer: Optional[PhotoAnalyzer] = None, media_dir: Optional[os.PathLike] = None,
-               printer: Optional[PrinterService] = None) -> FastAPI:
-    if registry is None:
-        registry = Registry.load(os.environ.get("EXTBUS_STATE", "state_registry.json"))
+               printer: Optional[PrinterService] = None, auth: Optional[bool] = None) -> FastAPI:
+    owns_registry = registry is None
+    if registry is None:                           # EXTBUS_DB (SQLite) wins over the legacy EXTBUS_STATE (JSON)
+        registry = Registry.load(os.environ.get("EXTBUS_DB") or os.environ.get("EXTBUS_STATE", "state_registry.json"))
     bus = FabricationBus(registry, parser=parser or default_parser(registry))
     hub = StationHub()
     recovery = restore(bus)                       # open frames come back at their exact step BEFORE any traffic
@@ -271,10 +317,72 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         yield
         if printer is not None:
             printer.stop()
+        if owns_registry:
+            registry.close()                          # checkpoint the WAL and release the single-writer lock
 
     app = FastAPI(title="extrusion-telemetry-bus", version="0.5.0", lifespan=lifespan)
     app.state.bus, app.state.frames, app.state.media_dir = bus, frames, media_root
     app.state.hub, app.state.printer, app.state.recovery = hub, printer, recovery
+
+    # ---------------- authentication / RBAC ---------------- #
+    auth_on = auth if auth is not None else os.environ.get("EXTBUS_AUTH", "on").strip().lower() not in ("off", "0", "false", "no")
+    authsvc = AuthService(registry, session_hours=float(os.environ.get("EXTBUS_SESSION_HOURS", "12")))
+    app.state.auth_on, app.state.auth, app.state.bootstrap_secret = auth_on, authsvc, None
+    if auth_on and not authsvc.has_users():        # first boot: never ship an open server or a default password
+        app.state.bootstrap_secret = secrets.token_urlsafe(12)
+        authsvc.create_user("admin", "admin", app.state.bootstrap_secret, by="bootstrap")
+        print(f"extbus: FIRST BOOT - created user 'admin' with secret {app.state.bootstrap_secret}  (shown once; change it)", flush=True)
+
+    def who(request: Request) -> Principal:
+        return getattr(request.state, "principal", AUTH_OFF)
+
+    def client_ip(request: Request) -> str:
+        return request.client.host if request.client else ""
+
+    RESERVED_AUDIT_KEYS = {"user", "role", "ip", "action", "seq", "ts"}
+
+    def audit(request: Request, action: str, **detail) -> None:
+        """Actor fields are fixed; any detail key that would overwrite them is stored as ``target_<key>``."""
+        p = who(request)
+        safe = {(f"target_{k}" if k in RESERVED_AUDIT_KEYS else k): v for k, v in detail.items()}
+        registry.append_audit(user=p.username, role=p.role, ip=client_ip(request), action=action, **safe)
+
+    def job_guard(request: Request, rec: Optional[dict], job_id: str) -> None:
+        """Reps may only touch jobs they created; engineers and admins see everything."""
+        if not auth_on or rec is None:
+            return
+        p = who(request)
+        if p.role in ("engineer", "admin"):
+            return
+        if rec.get("owner") != p.username:
+            raise HTTPException(403, f"job {job_id} belongs to another user")
+
+    def owner_for(request: Request) -> Optional[str]:
+        return who(request).username if auth_on else None
+
+    @app.middleware("http")
+    async def _security(request: Request, call_next):
+        path, method = request.url.path, request.method
+        perm = required_permission(method, path)
+        if auth_on and perm != "public":
+            token = bearer_token(request.headers, request.cookies)
+            principal = authsvc.authenticate(token)
+            if principal is None:
+                return JSONResponse({"detail": "authentication required"}, status_code=401)
+            if not allowed(principal.role, perm):
+                registry.append_audit(user=principal.username, role=principal.role, ip=client_ip(request),
+                                      action="DENIED", method=method, path=path, needs=perm)
+                return JSONResponse({"detail": f"role {principal.role!r} may not do this"}, status_code=403)
+            if method not in ("GET", "HEAD", "OPTIONS") and not request.headers.get("authorization"):
+                origin = request.headers.get("origin")      # cookie auth: block cross-site form posts / fetches
+                if (origin and urlparse(origin).netloc != request.headers.get("host")) or not request.headers.get("x-extbus"):
+                    return JSONResponse({"detail": "cross-site request blocked"}, status_code=403)
+            request.state.principal = principal
+        resp = await call_next(request)
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        if path.startswith(("/api", "/order", "/cut", "/drop", "/label", "/ledger")):
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     def notify(frame: Frame, event: Optional[dict] = None) -> None:
         """Push HTTP-driven changes to any WebSocket displays on the frame's station."""
@@ -282,12 +390,6 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             if event:
                 hub.publish(frame.station, event)
             hub.publish(frame.station, saw_state(bus, frame.station, frame))
-
-    @app.middleware("http")
-    async def _nosniff(request, call_next):
-        resp = await call_next(request)
-        resp.headers["X-Content-Type-Options"] = "nosniff"
-        return resp
 
     def frame_or_404(fid: str) -> Frame:
         if fid not in frames:
@@ -301,6 +403,8 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
 
     @app.get("/health")
     def health() -> dict:
+        if auth_on:                                  # unauthenticated callers learn only that the server is up
+            return {"ok": True}
         s = registry.state
         return {"ok": True, "raw": sum(i.kind == StockKind.RAW for i in s.stock.values()),
                 "remnants": sum(i.kind == StockKind.REMNANT for i in s.stock.values()),
@@ -401,12 +505,14 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         raise HTTPException(422, "send `scope` text or `cuts`")
 
     @app.post("/api/saw/adopt-drop", response_model=AdoptResult)
-    def adopt_drop(body: AdoptIn) -> AdoptResult:
+    def adopt_drop(body: AdoptIn, request: Request) -> AdoptResult:
         with lock:
             frame = frame_or_404(body.frame_id) if body.frame_id else None
             try:
-                return bus.adopt_drop(body.profile, body.tape_in, parse_end_condition(body.end_a),
-                                      parse_end_condition(body.end_b), body.job_id, frame)
+                res = bus.adopt_drop(body.profile, body.tape_in, parse_end_condition(body.end_a),
+                                     parse_end_condition(body.end_b), body.job_id, frame)
+                audit(request, "ADOPT_DROP", addr=res.addr, profile=body.profile, tape_in=body.tape_in)
+                return res
             except (ValueError, KeyError) as exc:
                 raise HTTPException(422, str(exc)) from exc
             except Exception as exc:  # unknown profile
@@ -418,9 +524,10 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             return compile_cut_list(bus, body.job_id, specs_of(body), allow_purchase=body.allow_purchase)
 
     @app.post("/api/nest/commit", response_model=StepOut)
-    def nest_commit(body: BomIn) -> StepOut:
+    def nest_commit(body: BomIn, request: Request) -> StepOut:
         """Compile, then open a frame that executes the compiled piece order on the real registry."""
         with lock:
+            audit(request, "NEST_COMMIT", job_id=body.job_id)
             plan = compile_cut_list(bus, body.job_id, specs_of(body))
             if plan.unmet:
                 raise HTTPException(409, f"{len(plan.unmet)} piece(s) cannot be cut from current stock; "
@@ -435,28 +542,82 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             return quote_job(bus, body.job_id, specs_of(body), margin_pct=body.margin_pct,
                              labor_per_cut=body.labor_per_cut)
 
+    def alerts_now(window_days: float = 14.0, safety_days: float = 2.0, early_warning_days: float = 3.0,
+                   lookahead: bool = True) -> List[ReorderAlert]:
+        forecast = committed_demand(bus, registry.clock()) if lookahead else None
+        return reorder_report(registry, window_days=window_days, safety_days=safety_days, forecast=forecast,
+                              early_warning_days=early_warning_days)
+
+    last_po: Dict[str, str] = {}
+
+    def po_watch(request: Optional[Request], why: str) -> List[ReorderAlert]:
+        """Recompute the lookahead after something that changes demand or supply.  Any profile whose status
+        WORSENED since we last looked is audited and pushed to connected displays; returns the non-OK profiles."""
+        alerts = alerts_now()
+        worse = [a for a in alerts if STATUS_RANK[a.status] > STATUS_RANK[last_po.get(a.profile, "OK")]]
+        for a in alerts:
+            last_po[a.profile] = a.status
+        if worse:
+            hub.publish_all({"type": "po_alert", "why": why, "alerts": [a.model_dump(mode="json") for a in worse]})
+            for a in worse:
+                registry.append_audit(user=who(request).username if request else "(system)", role=who(request).role if request else "",
+                                      ip=client_ip(request) if request else "", action="PO_ALERT", profile=a.profile,
+                                      status=a.status, why=why, qty=a.suggested_order_sticks, order_by_in_days=a.order_by_in_days)
+        return [a for a in alerts if a.status != "OK"]
+
     @app.get("/api/procurement/reorder", response_model=List[ReorderAlert])
-    def reorder(window_days: float = 14.0, safety_days: float = 2.0) -> List[ReorderAlert]:
+    def reorder(window_days: float = 14.0, safety_days: float = 2.0, early_warning_days: float = 3.0,
+                lookahead: bool = True) -> List[ReorderAlert]:
         with lock:
-            return reorder_report(registry, window_days=window_days, safety_days=safety_days)
+            return alerts_now(window_days, safety_days, early_warning_days, lookahead)
+
+    @app.get("/api/procurement/po-draft")
+    def procurement_po_draft() -> dict:
+        with lock:
+            return {"lines": po_draft(alerts_now(), registry.clock())}
+
+    @app.get("/api/procurement/lookahead")
+    def procurement_lookahead(days: int = 30) -> dict:
+        """Per-profile stock projection (end-of-day sticks) from on hand, open orders and released jobs."""
+        with lock:
+            now = registry.clock()
+            fc = committed_demand(bus, now)
+            alerts = {a.profile: a for a in reorder_report(registry, forecast=fc)}
+            out = {}
+            for pn, prof in registry.state.profiles.items():
+                a = alerts[pn]
+                arrivals = [((o["eta_ts"] - now) / 86400.0, o["qty"]) for o in registry.state.on_order if o["profile"] == pn]
+                safety = max(prof.min_stock_sticks, math.ceil(a.burn_sticks_per_day * 2))
+                proj = project_levels(on_hand=a.on_hand_sticks, events=fc.by_profile.get(pn, []), arrivals=arrivals,
+                                      burn_per_day=a.burn_sticks_per_day, safety_sticks=safety,
+                                      horizon_days=max(1, min(days, 90)))
+                out[pn] = {"status": a.status, "reason": a.reason, "lead_time_days": prof.lead_time_days,
+                           "safety_sticks": safety, "levels": proj.levels,
+                           "events": [e.model_dump() for e in fc.by_profile.get(pn, [])]}
+            return {"frames": fc.frames, "profiles": out}
 
     @app.post("/api/procurement/order")
-    def place_order(body: OrderStickIn) -> dict:
+    def place_order(body: OrderStickIn, request: Request) -> dict:
         with lock:
-            return registry.place_order(body.profile, body.qty, body.eta_days)
+            audit(request, "PO_PLACED", profile=body.profile, qty=body.qty, eta_days=body.eta_days)
+            out = registry.place_order(body.profile, body.qty, body.eta_days)
+            po_watch(request, f"PO placed for {body.profile}")
+            return out
 
     @app.post("/api/procurement/receive")
-    def receive(body: OrderStickIn) -> dict:
+    def receive(body: OrderStickIn, request: Request) -> dict:
         with lock:
+            audit(request, "STOCK_RECEIVED", profile=body.profile, qty=body.qty, length_in=body.length_in)
             items = registry.receive(body.profile, body.qty, body.length_in)
+            po_watch(request, f"{body.profile} received")
             return {"received": [i.addr for i in items]}
 
     # ---------------- Phase 3: sales intake ---------------- #
     photo_analyzer: PhotoAnalyzer = analyzer or VisionAnalyzer(media_root)
 
-    def assess(pkg: SalesIntakePackage) -> EngineeringReadinessReport:
+    def assess(pkg: SalesIntakePackage, owner: Optional[str] = None) -> EngineeringReadinessReport:
         report = evaluate_intake(pkg, photo_analyzer.analyze(pkg))
-        registry.save_intake(pkg.job_id, pkg.model_dump(mode="json"), report.model_dump(mode="json"))
+        registry.save_intake(pkg.job_id, pkg.model_dump(mode="json"), report.model_dump(mode="json"), owner)
         return report
 
     def stored_package(job_id: str) -> SalesIntakePackage:
@@ -466,25 +627,29 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         return SalesIntakePackage.model_validate(rec["package"])
 
     @app.post("/api/sales/intake", response_model=EngineeringReadinessReport)
-    def sales_intake(pkg: SalesIntakePackage) -> EngineeringReadinessReport:
+    def sales_intake(pkg: SalesIntakePackage, request: Request) -> EngineeringReadinessReport:
         """Run GE_1..GE_3 now, while the rep is still on site."""
         with lock:
-            return assess(pkg)
+            job_guard(request, registry.state.intakes.get(pkg.job_id), pkg.job_id)
+            return assess(pkg, owner_for(request))
 
     @app.post("/api/sales/intake/answer", response_model=EngineeringReadinessReport)
-    def sales_answer(body: AnswerIn) -> EngineeringReadinessReport:
+    def sales_answer(body: AnswerIn, request: Request) -> EngineeringReadinessReport:
         """Merge the rep's answers to prompt cards into the stored package and re-run the gates."""
         with lock:
+            job_guard(request, registry.state.intakes.get(body.job_id), body.job_id)
             try:
                 return assess(apply_answers(stored_package(body.job_id), body.answers))
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
 
     @app.post("/api/sales/generate-bom", response_model=GenerateBomOut)
-    def sales_generate_bom(body: GenerateBomIn) -> GenerateBomOut:
+    def sales_generate_bom(body: GenerateBomIn, request: Request) -> GenerateBomOut:
         with lock:
+            job_guard(request, registry.state.intakes.get(body.job_id), body.job_id)
             pkg = body.package or stored_package(body.job_id)
-            report = assess(pkg)
+            job_guard(request, registry.state.intakes.get(pkg.job_id), pkg.job_id)
+            report = assess(pkg, owner_for(request))
             if not report.is_ready_for_engineering:
                 raise HTTPException(409, detail=report.model_dump(mode="json"))
             try:
@@ -515,7 +680,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         return out
 
     @app.post("/api/sales/upload-photo", response_model=UploadOut)
-    def upload_photo(job_id: str = Form(...), kind: str = Form(...), file: UploadFile = File(...)) -> UploadOut:
+    def upload_photo(request: Request, job_id: str = Form(...), kind: str = Form(...), file: UploadFile = File(...)) -> UploadOut:
         """Multipart photo upload: wide_context | tie_in_closeup | sketch."""
         try:
             jid = safe_job_id(job_id)
@@ -524,6 +689,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             raise HTTPException(422, f"bad job_id or kind: {exc}") from exc
         data = file.file.read(MAX_BYTES + 1)
         with lock:
+            job_guard(request, registry.state.intakes.get(jid), jid)
             try:
                 info = inspect_image(data)
             except MediaError as exc:
@@ -536,7 +702,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             rec = registry.state.intakes.get(jid)
             pkg = SalesIntakePackage.model_validate(rec["package"]) if rec else SalesIntakePackage(job_id=jid)
             pkg = pkg.model_copy(update={"site_photos": [p for p in pkg.site_photos if p.kind != pk] + [photo]})
-            report = assess(pkg)
+            report = assess(pkg, owner_for(request))
             view = next(v for v in photo_views(pkg, photo_analyzer.analyze(pkg)) if v.kind == pk)
             return UploadOut(photo=view, report=report)
 
@@ -552,10 +718,13 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                          ts=rec.get("ts", 0.0))
 
     @app.get("/api/sales/jobs", response_model=List[JobSummary])
-    def list_jobs() -> List[JobSummary]:
+    def list_jobs(request: Request) -> List[JobSummary]:
         with lock:
             out = []
+            me = who(request)
             for jid, rec in registry.state.intakes.items():
+                if auth_on and me.role == "rep" and rec.get("owner") != me.username:
+                    continue                          # a rep only ever sees their own customers
                 r = rec["report"]
                 out.append(JobSummary(
                     job_id=jid, customer_name=rec["package"].get("customer_name", ""),
@@ -565,7 +734,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             return sorted(out, key=lambda j: -j.ts)
 
     @app.get("/api/sales/jobs/{job_id}", response_model=JobDetail)
-    def job_detail(job_id: str, create: bool = False) -> JobDetail:
+    def job_detail(job_id: str, request: Request, create: bool = False) -> JobDetail:
         """``create=true`` makes an empty intake on first visit (the sales page uses it)."""
         with lock:
             if create and job_id not in registry.state.intakes:
@@ -573,7 +742,10 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                     safe_job_id(job_id)
                 except MediaError as exc:
                     raise HTTPException(422, str(exc)) from exc
-                assess(SalesIntakePackage(job_id=job_id))
+                if auth_on and who(request).role not in ("rep", "admin"):
+                    raise HTTPException(403, "only a rep may start a new intake")
+                assess(SalesIntakePackage(job_id=job_id), owner_for(request))
+            job_guard(request, registry.state.intakes.get(job_id), job_id)
             return detail(job_id)
 
     def solve_for(pkg: SalesIntakePackage, max_oc: float) -> ParametricModel:
@@ -606,7 +778,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             return PreviewOut(report=report, package=pkg, parametric=model, quote=q)
 
     @app.post("/api/engineering/release", response_model=ReleaseOut)
-    def eng_release(body: ReleaseIn) -> ReleaseOut:
+    def eng_release(body: ReleaseIn, request: Request) -> ReleaseOut:
         """Verified BOM -> nest compiler -> job cart (10.4.1.x) + executable frame for the saw bench."""
         with lock:
             rec = registry.state.intakes.get(body.job_id)
@@ -630,7 +802,12 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                 raise HTTPException(409, detail={
                     "message": f"{len(plan.unmet)} piece(s) cannot be cut from current stock",
                     "purchase_sticks": buy.purchased_sticks})
-            frame = bus.frame_from_specs(body.job_id, plan.order)     # also opens the job cart
+            due_ts = None
+            if body.due_in_days is not None:
+                if not (0 <= body.due_in_days <= 365):
+                    raise HTTPException(422, "due_in_days must be between 0 and 365")
+                due_ts = registry.clock() + body.due_in_days * 86400.0
+            frame = bus.frame_from_specs(body.job_id, plan.order, due_ts=due_ts)     # also opens the job cart
             frames[frame.frame_id] = frame
             cart = registry.state.carts[body.job_id]
             with registry.transaction():
@@ -641,8 +818,10 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                 r.setdefault("revisions", []).append({"ts": registry.clock(), "overrides": body.overrides,
                                                       "max_oc_in": body.max_oc_in})
                 registry.log("RELEASED", job_id=body.job_id, cart=cart.addr, frame=frame.frame_id)
+            audit(request, "RELEASE", job_id=body.job_id, cart=cart.addr, overrides=body.overrides, pieces=plan.pieces,
+                  due_in_days=body.due_in_days)
             return ReleaseOut(job_id=body.job_id, cart_addr=cart.addr, frame_id=frame.frame_id,
-                              plan=plan, report=report)
+                              plan=plan, report=report, po_alerts=po_watch(request, f"release of {body.job_id}"))
 
     @app.get("/api/frames")
     def list_frames() -> List[dict]:
@@ -671,6 +850,20 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         if st is None:
             await ws.close(code=4404)
             return
+        token = None
+        if auth_on:
+            origin = ws.headers.get("origin")                      # block cross-site WebSocket hijacking
+            if origin and urlparse(origin).netloc != ws.headers.get("host"):
+                await ws.close(code=4403)
+                return
+            token = bearer_token(ws.headers, ws.cookies, ws.query_params.get("token"))
+            principal = authsvc.authenticate(token)
+            if principal is None:
+                await ws.close(code=4401)
+                return
+            if not allowed(principal.role, "bench"):
+                await ws.close(code=4403)
+                return
         await ws.accept()
         await hub.register(st.name, ws)
 
@@ -683,6 +876,9 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             await ws.send_json({**init, "seq": 0, "station": st.name, "station_addr": st.addr, "hello": True})
             while True:
                 text = await ws.receive_text()
+                if auth_on and authsvc.authenticate(token) is None:   # logged out / expired / disabled mid-shift
+                    await ws.close(code=4401)
+                    return
                 if len(text.encode()) > MAX_MESSAGE_BYTES:
                     await ws.send_json({"type": "error", "code": "TOO_LARGE", "message": "message too large"})
                     continue
@@ -717,7 +913,8 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             return [{k: v for k, v in j.items() if k != "payload_b64"} for j in registry.state.print_queue[-50:]]
 
     @app.post("/api/printer/reprint")
-    def printer_reprint(body: ReprintIn) -> dict:
+    def printer_reprint(body: ReprintIn, request: Request) -> dict:
+        audit(request, "LABEL_REPRINT", addr=body.addr)
         if printer is None:
             raise HTTPException(409, "no printer configured (set EXTBUS_PRINTER)")
         with lock:
@@ -772,13 +969,15 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                 raise HTTPException(exc.status, str(exc)) from exc
 
     @app.post("/api/engineering/batch-release", response_model=BatchReleaseOut)
-    def batch_release(body: BatchIn) -> BatchReleaseOut:
+    def batch_release(body: BatchIn, request: Request) -> BatchReleaseOut:
         with lock:
             try:
                 plan, frame = release_batch(bus, body.job_ids)
             except BatchError as exc:
                 raise HTTPException(exc.status, str(exc)) from exc
-            return BatchReleaseOut(batch_id=plan.batch_id, frame_id=frame.frame_id, plan=plan)
+            audit(request, "BATCH_RELEASE", batch=plan.batch_id, jobs=body.job_ids)
+            return BatchReleaseOut(batch_id=plan.batch_id, frame_id=frame.frame_id, plan=plan,
+                                   po_alerts=po_watch(request, f"batch {plan.batch_id}"))
 
     @app.get("/api/inventory")
     def inventory() -> dict:
@@ -801,15 +1000,138 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                     "carts": [{"job_id": c.job_id, "addr": c.addr, "pieces": len(c.pieces)} for c in s.carts.values()]}
 
     # ---------------- static viewports ---------------- #
+    @app.get("/api/auth/config")
+    def auth_config() -> dict:
+        return {"auth": auth_on, "roles": list(ROLES)}
+
+    @app.post("/api/auth/login")
+    def login(body: LoginIn, request: Request) -> JSONResponse:
+        if not auth_on:
+            raise HTTPException(409, "authentication is disabled on this server (EXTBUS_AUTH=off)")
+        try:
+            token, sess = authsvc.login(body.username, body.secret, client_ip(request))
+        except AuthError as exc:
+            registry.append_audit(user=body.username.strip().lower()[:32], role="", ip=client_ip(request),
+                                  action="LOGIN_FAILED", reason=str(exc)[:80])
+            return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+        registry.append_audit(user=sess["user"], role=sess["role"], ip=client_ip(request), action="LOGIN")
+        resp = JSONResponse({"username": sess["user"], "role": sess["role"], "expires_ts": sess["expires_ts"], "token": token})
+        resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=request.url.scheme == "https",
+                        max_age=int(sess["expires_ts"] - sess["created_ts"]), path="/")
+        return resp
+
+    @app.post("/api/auth/logout")
+    def logout(request: Request) -> JSONResponse:
+        token = bearer_token(request.headers, request.cookies)
+        if auth_on and token:
+            authsvc.logout(token)
+            audit(request, "LOGOUT")
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(COOKIE, path="/")
+        return resp
+
+    @app.get("/api/auth/me")
+    def me(request: Request) -> dict:
+        p = who(request)
+        perms = sorted({"*"} if p.role == "admin" else ROLE_PERMS[p.role])
+        return {"username": p.username, "role": p.role, "kind": p.kind, "auth": auth_on, "perms": perms}
+
+    @app.post("/api/auth/password")
+    def change_password(body: PasswordIn, request: Request) -> dict:
+        p = who(request)
+        rec = registry.state.users.get(p.username)
+        if not auth_on or p.kind != "session" or rec is None:
+            raise HTTPException(409, "only a logged-in user can change their own secret")
+        from .auth import verify_secret
+        if not verify_secret(body.old, rec["hash"]):
+            raise HTTPException(401, "current secret is wrong")
+        try:
+            authsvc.set_secret(p.username, body.new)
+        except AuthError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        audit(request, "SECRET_CHANGED")
+        return {"ok": True, "note": "all sessions for this user were ended; log in again"}
+
+    def admin_call(request: Request, action: str, fn, **detail):
+        with lock:
+            try:
+                out = fn()
+            except AuthError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            audit(request, action, **detail)
+            return out
+
+    @app.get("/api/admin/users")
+    def admin_users() -> List[dict]:
+        with lock:
+            return authsvc.list_users()
+
+    @app.post("/api/admin/users")
+    def admin_create_user(body: UserIn, request: Request) -> dict:
+        return admin_call(request, "USER_CREATED", lambda: authsvc.create_user(body.username, body.role, body.secret, who(request).username),
+                          user=body.username.strip().lower(), role=body.role)
+
+    @app.post("/api/admin/users/{username}/secret")
+    def admin_reset_secret(username: str, body: SecretIn, request: Request) -> dict:
+        admin_call(request, "SECRET_RESET", lambda: authsvc.set_secret(username, body.secret), user=username)
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{username}/active")
+    def admin_set_active(username: str, body: ActiveIn, request: Request) -> dict:
+        admin_call(request, "USER_ENABLED" if body.active else "USER_DISABLED", lambda: authsvc.set_active(username, body.active), user=username)
+        return {"ok": True}
+
+    @app.post("/api/admin/users/{username}/role")
+    def admin_set_role(username: str, body: RoleIn, request: Request) -> dict:
+        admin_call(request, "ROLE_CHANGED", lambda: authsvc.set_role(username, body.role), user=username, role=body.role)
+        return {"ok": True}
+
+    @app.get("/api/admin/sessions")
+    def admin_sessions() -> List[dict]:
+        with lock:
+            return authsvc.list_sessions()
+
+    @app.post("/api/admin/sessions/{sid}/revoke")
+    def admin_revoke(sid: str, request: Request) -> dict:
+        n = admin_call(request, "SESSION_REVOKED", lambda: authsvc.revoke(sid), session=sid[:12])
+        return {"revoked": n}
+
+    @app.post("/api/admin/tokens")
+    def admin_mint_token(body: TokenIn, request: Request) -> dict:
+        token, sess = admin_call(request, "DEVICE_TOKEN_MINTED", lambda: authsvc.mint_device_token(body.role, body.label, body.days, who(request).username),
+                                 label=body.label, role=body.role, days=body.days)
+        return {"token": token, "label": sess["label"], "role": sess["role"], "expires_ts": sess["expires_ts"],
+                "note": "shown once; store it on the device"}
+
+    @app.get("/api/admin/audit")
+    def admin_audit(limit: int = 200, action: Optional[str] = None, user: Optional[str] = None) -> List[dict]:
+        with lock:
+            rows = [a for a in registry.state.audit if (not action or a.get("action") == action) and (not user or a.get("user") == user)]
+            return rows[-max(1, min(limit, 2000)):][::-1]
+
+    @app.get("/media/{job_id}/{filename}")
+    def media_file(job_id: str, filename: str, request: Request):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", job_id) or not re.fullmatch(r"[a-z_]+\.(jpg|png|webp)", filename):
+            raise HTTPException(404, "not found")
+        with lock:
+            rec = registry.state.intakes.get(job_id)
+            if auth_on and rec is None:
+                raise HTTPException(404, "not found")
+            job_guard(request, rec, job_id)
+        path = media_root / job_id / filename
+        if not path.is_file():
+            raise HTTPException(404, "not found")
+        return FileResponse(path, headers={"Cache-Control": "private, max-age=300"})
+
     for route, name in (("/", "index.html"), ("/sales", "sales.html"), ("/engineering", "engineering.html")):
         app.add_api_route(route, (lambda n=name: FileResponse(STATIC_DIR / n)), methods=["GET"],
                           include_in_schema=False)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-    app.mount("/media", StaticFiles(directory=media_root), name="media")
 
     @app.get("/ledger/scrap")
-    def scrap_ledger() -> dict:
+    def scrap_ledger(request: Request) -> dict:
         with lock:
+            audit(request, "SCRAP_LEDGER_VIEWED")
             return {"total_lb": registry.scrap_total_lb(),
                     "entries": [e.model_dump() for e in registry.state.scrap_ledger]}
 
