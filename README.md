@@ -25,6 +25,10 @@ No cloud. No subscription. FastAPI + `state_registry.json` on a Pi / office PC /
 | `parametric.py` | Phase 3: envelope -> wireframe + deterministic cut list |
 | `media.py` | Phase 4: photo validation, storage under `./media/{job_id}/`, resolution + sharpness |
 | `vision.py` | Phase 4: pluggable vision analyzer (heuristic default, mock, remote multimodal) |
+| `recovery.py` | Phase 5: boot recovery (frames back at their exact step, stale locks freed, older released jobs rebuilt) |
+| `telemetry.py` | Phase 5: `/ws/saw/{station}` hub, protocol, blade setup |
+| `printer.py` | Phase 5: ESC/POS 2"x1" label rendering, transports, durable outbox worker |
+| `batch.py` | Phase 5: multi-job batch nesting compile + release |
 | `static/` | Phase 4: zero-dependency SPA: `index.html` (shell, Saw Bench, Inventory, Accounting), `sales.html`, `engineering.html`, `common.js`, `app.css` |
 | `labels.py` | ESC/POS label + QR for racked remnants |
 | `server.py` | FastAPI endpoints |
@@ -72,7 +76,7 @@ Also: `POST /cut/verify`, `/cut/complete`, `/cut/miscut`, `/drop/missing`, `GET 
 
 ```bash
 pip install -e ".[dev]"
-pytest                      # 203 tests (the browser test needs: playwright install chromium)
+pytest                      # 270 tests (browser tests need: playwright install chromium)
 extbus demo                 # seeded shop, full order, temp registry
 EXTBUS_STATE=/srv/shop/state_registry.json EXTBUS_MEDIA=/srv/shop/media extbus serve     # :8000, open /
 ```
@@ -149,19 +153,29 @@ Open `http://<server>:8000/`: tabs **Sales | Engineering | Saw Bench | Inventory
 
 **Vision (`vision.py`)**: `EXTBUS_VISION_API_KEY` set -> `RemoteBackend` (Anthropic Messages format; `EXTBUS_VISION_MODEL`, `EXTBUS_VISION_URL`), otherwise `HeuristicBackend`. The heuristic is a coarse color statistic with confidence capped at 0.5, so it is shown to engineers but can never move a gate. Remote replies must validate against a strict schema (enum substrate/obstacles, clamped confidences); anything else, or any network failure, falls back to the heuristic and is labelled as such. Results are cached per photo. `MockBackend` (filename tokens like `brick`, `downspout`) exists for tests and demos.
 
+## Phase 5: shop-floor hardware, live telemetry, persistence
+
+**Crash recovery.** Every frame (slot, staged step, pending pieces, reservations, station) is saved in `state_registry.json` inside the SAME durable write as the stock and cart changes it describes (`bus._atomic`): after a power cut the bench shows the step it showed before, and a half-finished commit never happened (no double-credited piece, no consumed stick with an un-advanced frame). On boot `recovery.restore()` reloads frames to their exact step, re-stages any whose reserved stock vanished, frees reservations owned by finished jobs, and **rebuilds a frame for jobs released by an older build** (stored BOM minus pieces already on the cart; assumes the BOM has not changed since release). `GET /api/recovery` reports what it did. File durability: fsync of the file and its directory, a hard-linked `.bak` of the previous version, and fallback to it if the main file is unreadable (it never silently starts empty).
+
+**Live saw telemetry.** `WS /ws/saw/{station}` (name or `10.3.1.x` address). Client messages: `attach {frame_id}`, `stage`, `key {key:"1"|"2"|"3"|"4", actual_length_in?}` (1 CUT_OK, 2 FLIP_MITER, 3 MISCUT_NAK, 4 PIECE_MISSING), `sync`, `ping`. Server pushes `state` (frame, staged step = the next drop to pull, gate verdicts, **blade setup**: angle, swing, fence length, lead-prep mode and trim, expected drop), `event` (CUT_OK etc. with the rack/scrap screen and label text), `print`, `error` (sender only). Every broadcast has a per-station `seq`; a new connection gets the current state first, so a reloaded tablet or a second wall display is correct immediately; HTTP actions (`/order/...`) also push to attached displays. The Saw Bench uses the socket and falls back to HTTP if it drops. Swing convention: long point on the spline face = `left`; invert with `EXTBUS_SWING_SPLINE=right`.
+
+**Label printing.** `EXTBUS_PRINTER=net:192.168.1.50:9100` | `file:/dev/usb/lp0` | `memory`. When a remainder is racked (or a legacy drop is adopted) the sticker job is committed in the same transaction as the remnant (transactional outbox), and a worker thread is woken the moment that commit is durable. Offline printer: the job stays queued, retries with backoff (1, 2, 4 ... 60 s, then `failed` after 8 tries; `POST /api/printer/retry`), and prints after a restart. Delivery is at-least-once (a crash between send and mark can reprint one sticker). Label: 2" x 1" at 203 dpi (384 x 203 dots), QR on the left, bin / address / square length / profile / end conditions on the right, one `GS v 0` bitmap. Options: `EXTBUS_LABEL_STYLE=raster|native`, `EXTBUS_PRINTER_FEED=ff|gs_ff|none|lines:N` (how the printer advances to the next label gap; **model dependent, test yours**), `EXTBUS_PRINTER_CUT=1`. Try one without the server: `extbus printer-test --target net:192.168.1.50 --save-png label.png`. Endpoints: `GET /api/printer`, `/api/printer/queue`, `POST /api/printer/reprint {addr}`, `/retry`, `/test`.
+
+**Batch nesting.** In Engineering, open *Shift batch*, tick two or more released jobs, *Compile batch* (`POST /api/engineering/batch-compile`) to see **back-to-back vs batched** (virgin sticks, drops used and created, lead cuts skipped, scrap lb, yield %), then *Release batch* (`.../batch-release`). The compiler tries pooled best-fit-decreasing, pooled grouped-by-miter, and the back-to-back order itself, so the batch is never worse than the baseline it reports. The batch runs as ONE frame (`BATCH-xxxxxx`) that owns stock reservations, while each piece is credited to its own job's cart (`10.4.1.x`) and scrap is attributed to its own job; the member jobs' frames are retired in the same commit. Yield % = piece length / (piece length + scrapped leftover length); racked leftovers count as inventory, not waste. Release is refused if any piece cannot be cut from current stock.
+
 ## Assumptions and limits
 
 * **No authentication.** The server is meant for the shop LAN. Anyone who can reach it can upload photos, release jobs and change inventory; put it behind your router, not on the internet.
 * The remote vision backend is written to the API format but was **not run against the live API** (no key in development); its request shape, parser and fallback are unit-tested with a fake transport. The sharpness constant was calibrated on synthetic images: check it on a few real driveway photos before treating it as a hard blocker.
-* Labels: the bus returns ESC/POS bytes and the label text; there is no browser-to-printer bridge, so printing needs your own print service. The Saw Bench shows the sticker text.
+* Printing was tested against in-memory, file and real TCP-socket transports, never a physical printer. USB works only as a device node (`/dev/usb/lp0` on Linux); direct libusb access is not implemented. Raster layout assumes a 58 mm head (384 dots) at 203 dpi.
 * Browser testing covers Chromium (headless). The pages use only standard DOM/SVG APIs but were not tested in Safari or Firefox.
 * Media is stored on the server's disk and is not part of `state_registry.json`; back up `./media` with it. Photos are never deleted by the bus.
 
 * Kerf is a flat 0.125" per cut (no `k/cos(theta)` correction on miters) and truing waste is not weighed; only remainders and ruined pieces hit the scrap ledger.
-* Frames are held in server memory (a restart drops open frames: released jobs then need re-release); registry, carts, scrap, usage history, orders, unaccounted and DLQ are persisted. A restart drops open frames (reservations stay locked until unlocked).
+* Persistence is JSON with atomic replace + fsync + `.bak`, not a write-ahead log: the whole file is rewritten on each acknowledged cut. Fine at shop scale; very large frames (hundreds of pieces) make each write slower. Finished frames are pruned to the last 50.
 * One saw operation per piece (trailing end). Lead ends come from the stock; FLIP_MITER is the operator's override.
 * Nesting is a heuristic (best-fit decreasing over three orderings), not an optimal solver. A remainder that the rack gate scraps is not held back for later pieces in the same job.
 * Burn rate is flat-rate over the trailing window; it does not see scheduled jobs (a pipeline lookahead is not built).
 * Prices are `cost_per_ft` x charged length; no scrap-metal salvage credit and no per-stick vendor pricing tiers.
 * Parametric: front-wall rails and posts only follow the rules above (no gable, no knee-wall variants, no door framing; the door check only gates release). Post length equals the local roof-plane height with no seat allowance; rafters assume a plumb cut across the profile width. Verify these against your build standard before quoting real jobs.
-* Storage is JSON with atomic replace; SQLite is not implemented.
+* SQLite is not implemented.

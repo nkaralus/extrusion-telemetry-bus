@@ -10,8 +10,9 @@ Frame flow (operator + macro pad):
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from enum import Enum
-from typing import Callable, List, Literal, Optional, Set, Tuple, Union
+from typing import Callable, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel
 
@@ -86,6 +87,8 @@ class FabricationBus:
         remnant_min_in: float = REMNANT_MIN_IN,
         max_naks: int = 3,
         default_station: Optional[str] = None,
+        persist_frames: bool = True,
+        print_labels: bool = False,
     ) -> None:
         self.reg = registry
         self.parser = parser
@@ -93,6 +96,60 @@ class FabricationBus:
         self.remnant_min_in = remnant_min_in
         self.max_naks = max_naks
         self.default_station = default_station or next(iter(registry.state.stations), "")
+        self.persist_frames = persist_frames          # scratch simulations turn this off
+        self.print_labels = print_labels              # queue a sticker whenever a drop is racked
+        self.on_label_queued: Optional[Callable[[], None]] = None   # printer wake-up, fired after commit
+        self.frames: Dict[str, Frame] = {}
+
+    # ------------------------------------------------------------------ #
+    # Crash-safe frame persistence
+    # ------------------------------------------------------------------ #
+    def _save(self, frame: Frame) -> None:
+        if self.persist_frames:
+            self.reg.save_frame(frame.frame_id, frame.model_dump(mode="json"))
+
+    @contextmanager
+    def _atomic(self, frame: Frame, keep: tuple = ()):
+        """Registry changes AND the frame's new state commit in one durable write, or neither does.
+
+        On any other exception the in-memory frame is rolled back to its pre-call state, so memory
+        never disagrees with disk.  Exceptions listed in ``keep`` (a gate rejection that tripped the
+        DLQ) are committed first, then re-raised.
+        """
+        if not self.persist_frames:
+            yield
+            return
+        snap = frame.model_copy(deep=True)
+        kept: Optional[BaseException] = None
+        try:
+            with self.reg.transaction():
+                try:
+                    yield
+                except keep as exc:
+                    kept = exc
+                self._save(frame)
+        except BaseException:
+            for name in type(frame).model_fields:
+                setattr(frame, name, getattr(snap, name))
+            raise
+        if kept is not None:
+            raise kept
+
+    def _register(self, frame: Frame) -> Frame:
+        with self.reg.transaction():
+            self._save(frame)
+        self.frames[frame.frame_id] = frame
+        return frame
+
+    def _queue_label(self, item: StockItem) -> None:
+        """Transactional outbox: the sticker job commits with the remnant it describes."""
+        if not self.print_labels:
+            return
+        from .printer import label_payload_b64
+        title, payload = label_payload_b64(item, self.reg.profile(item.profile))
+        self.reg.enqueue_print(item.addr, item.uid, title, payload)
+        if self.on_label_queued is not None:
+            self.reg.after_commit(self.on_label_queued)
 
     # ------------------------------------------------------------------ #
     # Frame-free primitives
@@ -122,7 +179,7 @@ class FabricationBus:
         return [(i, p) for _, i, p in ranked]
 
     def commit(self, p: CutProposal, outcome: Literal["CUT_OK", "MISCUT_NAK"] = "CUT_OK",
-               actual_length_in: Optional[float] = None) -> CommitResult:
+               actual_length_in: Optional[float] = None, credit_job_id: Optional[str] = None) -> CommitResult:
         """SLOT_5: re-run the gates inside the transaction, then apply atomically.
 
         For MISCUT_NAK the saw already cut, so the stock is consumed and the drop is
@@ -133,6 +190,7 @@ class FabricationBus:
         if actual_length_in is not None:
             spec = spec.model_copy(update={"length_in": ceil_to_shop(actual_length_in)})
         p = p.model_copy(update={"spec": spec})
+        credit = credit_job_id or p.job_id      # batch runs: reservation owner != the job that owns the piece
         with self.reg.transaction():
             report = run_gates(self.reg, p, self.kerf)
             if not report.ok:
@@ -140,7 +198,7 @@ class FabricationBus:
             plan = report.plan
             prof = self.reg.profile(spec.profile)
             self.reg.consume(p.addr, reason=outcome)
-            self.reg.open_job(p.job_id)
+            self.reg.open_job(credit)
 
             leftover_addr = leftover_bin = None
             label = None
@@ -161,10 +219,11 @@ class FabricationBus:
                     disposition = Disposition.REMNANT_RACK
                     leftover_addr, leftover_bin = rem.addr, rem.bin_location
                     label = build_label(rem, prof)
+                    self._queue_label(rem)
                     screen = f"RACK {rem.bin_location}"
                 else:
                     entry = self.reg.log_scrap(spec.profile, plan.leftover_long_in,
-                                               scrap_reason, p.job_id)
+                                               scrap_reason, credit)
                     disposition = Disposition.SCRAP_BIN
                     scrap_lb = entry.weight_lb
                     screen = "SCRAP BIN" + (" (RACK FULL)" if scrap_reason == "RACK_FULL" else "")
@@ -172,13 +231,13 @@ class FabricationBus:
             credited = outcome == "CUT_OK"
             seq = self.reg.next_piece_seq()
             if credited:
-                self.reg.add_piece(p.job_id, PieceRecord(
+                self.reg.add_piece(credit, PieceRecord(
                     seq=seq, profile=spec.profile, length_in=spec.length_in,
                     miter_deg=spec.miter_deg, face=spec.face.value, source_addr=p.addr))
             else:
-                bad = self.reg.log_scrap(spec.profile, spec.length_in, "MISCUT", p.job_id)
+                bad = self.reg.log_scrap(spec.profile, spec.length_in, "MISCUT", credit)
                 scrap_lb += bad.weight_lb
-                self.reg.log("MISCUT", addr=p.addr, job_id=p.job_id, length_in=spec.length_in)
+                self.reg.log("MISCUT", addr=p.addr, job_id=credit, length_in=spec.length_in)
             return CommitResult(
                 outcome=outcome, source_addr=p.addr, plan=plan, disposition=disposition,
                 leftover_addr=leftover_addr, leftover_bin=leftover_bin, scrap_lb=round(scrap_lb, 3),
@@ -193,6 +252,9 @@ class FabricationBus:
     # Frame flow
     # ------------------------------------------------------------------ #
     def open_frame(self, job_id: str, raw_scope: str) -> Frame:
+        return self._register(self._open_frame(job_id, raw_scope))
+
+    def _open_frame(self, job_id: str, raw_scope: str) -> Frame:
         """SLOT_1 + SLOT_2.  NAK + retry on bad model output; 3 strikes -> DLQ."""
         if self.parser is None:
             raise RuntimeError("no parser configured")
@@ -227,13 +289,23 @@ class FabricationBus:
                 feedback = f"NAK {attempt}/{self.max_naks}: {str(exc)[:300]}"
         return None, [], naks, feedback
 
-    def frame_from_specs(self, job_id: str, specs: List[CutSpec]) -> Frame:
-        """Open a frame on an already-validated piece list (compiled nest, scratch simulation)."""
-        frame = Frame(job_id=job_id)
+    def frame_from_specs(self, job_id: str, specs: List[CutSpec], piece_jobs: Optional[List[str]] = None,
+                         note: str = "") -> Frame:
+        """Open a frame on an already-validated piece list (compiled nest, scratch simulation).
+
+        ``piece_jobs`` (batch runs) names the job that owns each piece; carts are opened for all of them.
+        """
+        if piece_jobs is not None and len(piece_jobs) != len(specs):
+            raise ValueError("piece_jobs must be parallel to specs")
+        frame = Frame(job_id=job_id, piece_jobs=list(piece_jobs or []), note=note)
         frame.advance(SlotId.SLOT_1_TASK)
         frame.advance(SlotId.SLOT_2_PLAN)
         frame.pending = list(specs)
-        self.reg.open_job(job_id)
+        with self.reg.transaction():
+            for j in dict.fromkeys([job_id, *(piece_jobs or [])]):
+                self.reg.open_job(j)
+            self._save(frame)
+        self.frames[frame.frame_id] = frame
         return frame
 
     def adopt_drop(self, profile: str, tape_in: Union[float, str], end_a: End, end_b: Optional[End] = None,
@@ -256,10 +328,12 @@ class FabricationBus:
                 self.reg.lock(item.addr, job_id)
             self.reg.log("ADOPTED", addr=item.addr, profile=profile, length_in=length)
             label = build_label(item, prof)
+            self._queue_label(item)
         nxt = None
         if frame is not None and frame.phase == FramePhase.DLQ and frame.dlq and frame.dlq.code == "NO_STOCK":
-            frame.resume()
-            nxt = self.stage_next_cut(frame)
+            with self._atomic(frame):
+                frame.resume()
+                nxt = self.stage_next_cut(frame)
         return AdoptResult(
             addr=item.addr, uid=item.uid, bin_location=item.bin_location or "",
             long_point_in=item.long_point_in, guaranteed_square_in=item.guaranteed_square_in,
@@ -283,6 +357,10 @@ class FabricationBus:
                 f"CUT {fmt_inches(spec.length_in)} {trail}")
 
     def stage_next_cut(self, frame: Frame, station: Optional[str] = None) -> Optional[Slot3Execute]:
+        with self._atomic(frame):
+            return self._stage_next_cut(frame, station)
+
+    def _stage_next_cut(self, frame: Frame, station: Optional[str] = None) -> Optional[Slot3Execute]:
         """SLOT_3 (drops before raw) -> SLOT_4 (gates).  Locks the source on success."""
         if frame.phase != FramePhase.ACTIVE:
             return None
@@ -323,6 +401,11 @@ class FabricationBus:
 
     def ack(self, frame: Frame, result: Literal["CUT_OK", "MISCUT_NAK", "PIECE_MISSING"],
             actual_length_in: Optional[float] = None, station: Optional[str] = None) -> AckResult:
+        with self._atomic(frame, keep=(GateRejected,)):
+            return self._ack(frame, result, actual_length_in, station)
+
+    def _ack(self, frame: Frame, result: Literal["CUT_OK", "MISCUT_NAK", "PIECE_MISSING"],
+             actual_length_in: Optional[float] = None, station: Optional[str] = None) -> AckResult:
         """Macro-pad keys: 1=CUT_OK, 3=MISCUT_NAK; ghost-drop button=PIECE_MISSING."""
         t0 = time.perf_counter()
         cur = frame.current
@@ -337,7 +420,8 @@ class FabricationBus:
             frame.advance(SlotId.SLOT_5_VERIFY)
             prop = self.proposal(cur.source_addr, cur.spec, frame.job_id, station)
             try:
-                commit = self.commit(prop, outcome=result, actual_length_in=actual_length_in)
+                commit = self.commit(prop, outcome=result, actual_length_in=actual_length_in,
+                                     credit_job_id=frame.piece_jobs[0] if frame.piece_jobs else None)
             except GateRejected as exc:
                 self._dlq(frame, SlotId.SLOT_5_VERIFY, "COMMIT_REJECTED", str(exc), step_id=cur.step_id)
                 raise
@@ -346,12 +430,18 @@ class FabricationBus:
                 leftover_addr=commit.leftover_addr, scrap_lb=commit.scrap_lb))
             if commit.piece_credited:
                 frame.pending.pop(0)  # a miscut leaves the piece pending: replacement is re-routed
+                if frame.piece_jobs:
+                    frame.piece_jobs.pop(0)
         frame.current = None
         nxt = self.stage_next_cut(frame, station)
         return AckResult(result=result, commit=commit, next_step=nxt, next_guard=frame.guard if nxt else None,
                          frame_phase=frame.phase.value, elapsed_ms=round((time.perf_counter() - t0) * 1000, 3))
 
     def flip_current(self, frame: Frame, station: Optional[str] = None) -> Optional[Slot3Execute]:
+        with self._atomic(frame):
+            return self._flip_current(frame, station)
+
+    def _flip_current(self, frame: Frame, station: Optional[str] = None) -> Optional[Slot3Execute]:
         """FLIP_MITER (key 2): turn the staged piece over and re-source it.
 
         Every long point moves to the other face, the old reservation is released, and the
@@ -369,9 +459,10 @@ class FabricationBus:
 
     def release(self, frame: Frame) -> None:
         """Abandon a frame: free any reservation it still holds."""
-        if frame.current is not None:
-            self.reg.unlock(frame.current.source_addr)
-            frame.current = None
+        with self._atomic(frame):
+            if frame.current is not None:
+                self.reg.unlock(frame.current.source_addr)
+                frame.current = None
 
     def run_to_completion(self, frame: Frame,
                           operator: Callable[[Slot3Execute], str] = lambda step: "CUT_OK") -> List[AckResult]:

@@ -38,6 +38,7 @@ class PlannedStep(BaseModel):
     scrap_reason: Optional[str] = None
     charged_len_in: float = 0.0  # virgin length this piece is billed for (0 for reclaimed drops)
     instruction: str = ""
+    job_id: Optional[str] = None  # owner of the piece (batch runs pool several jobs)
 
 
 class NestPlan(BaseModel):
@@ -53,6 +54,8 @@ class NestPlan(BaseModel):
     remnants_created: int = 0
     scrap_lb: float = 0.0
     order: List[CutSpec] = Field(default_factory=list)  # piece order to execute
+    piece_jobs: List[str] = Field(default_factory=list)  # parallel to ``order`` for batch runs
+    unmet_jobs: List[str] = Field(default_factory=list)  # parallel to ``unmet`` for batch runs
 
     @property
     def virgin_total(self) -> int:
@@ -71,14 +74,26 @@ def _orderings(specs: List[CutSpec]) -> List[Tuple[str, List[CutSpec]]]:
 
 def _simulate(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
               allow_purchase: bool, use_drops: bool) -> NestPlan:
-    state = bus.reg.state.model_copy(deep=True)
+    return _simulate_ex(bus, job_id, name, order, allow_purchase, use_drops)[0]
+
+
+def _simulate_ex(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
+                 allow_purchase: bool, use_drops: bool, *, base_state=None,
+                 piece_jobs: Optional[List[str]] = None) -> Tuple[NestPlan, Registry]:
+    """Dry-run ``order`` on a scratch copy of ``base_state`` (default: the live registry).
+
+    Returns the plan and the scratch registry AFTER the run, so a caller can chain further jobs on
+    the leftovers this one produced (batch baseline).
+    """
+    state = (base_state or bus.reg.state).model_copy(deep=True)
     if not use_drops:
         state.stock = {a: i for a, i in state.stock.items() if i.kind == StockKind.RAW}
     scratch = Registry(state=state, path=None, clock=bus.reg.clock)
     sb = FabricationBus(scratch, kerf=bus.kerf, remnant_min_in=bus.remnant_min_in,
-                        default_station=bus.default_station)
-    frame = sb.frame_from_specs(job_id, order)
-    plan = NestPlan(job_id=job_id, strategy=name, pieces=len(order), order=list(order))
+                        default_station=bus.default_station, persist_frames=False)
+    frame = sb.frame_from_specs(job_id, order, piece_jobs)
+    plan = NestPlan(job_id=job_id, strategy=name, pieces=len(order), order=list(order),
+                    piece_jobs=list(piece_jobs or []))
     purchased: set = set()
     real_raw = {a for a, i in state.stock.items() if i.kind == StockKind.RAW}
     pulled_raw: set = set()
@@ -101,6 +116,7 @@ def _simulate(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
                             scratch.state.stock.pop(a)
                             purchased.discard(a)
                     plan.unmet.append(frame.pending.pop(0))
+                    plan.unmet_jobs.append(frame.piece_jobs.pop(0) if frame.piece_jobs else job_id)
                     bought_for_current = 0
                 frame.resume()
                 step = sb.stage_next_cut(frame)
@@ -108,6 +124,7 @@ def _simulate(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
             break
         item = scratch.state.stock[step.source_addr].model_copy()
         cplan = _plan_for(scratch, item, step.spec, sb.kerf)
+        owner = frame.piece_jobs[0] if frame.piece_jobs else job_id
         ack = sb.ack(frame, "CUT_OK")
         c = ack.commit
         bought_for_current = 0
@@ -130,7 +147,7 @@ def _simulate(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
             disposition=c.disposition.value, leftover_addr=c.leftover_addr,
             scrap_lb=c.scrap_lb, scrap_reason=c.scrap_reason,
             charged_len_in=0.0 if kind == "drop" else item.long_point_in - (cplan.leftover_long_in if racked else 0),
-            instruction=step.instruction))
+            instruction=step.instruction, job_id=owner))
         step = ack.next_step
 
     plan.virgin_pulls = len(pulled_raw & real_raw)
@@ -141,7 +158,7 @@ def _simulate(bus: FabricationBus, job_id: str, name: str, order: List[CutSpec],
     plan.native_skips = sum(s.skipped_lead_cut for s in plan.steps)
     plan.remnants_created = sum(s.leftover_addr is not None for s in plan.steps)
     plan.scrap_lb = round(sum(s.scrap_lb for s in plan.steps), 3)
-    return plan
+    return plan, scratch
 
 
 def compile_cut_list(bus: FabricationBus, job_id: str, specs: List[CutSpec], *,

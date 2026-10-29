@@ -132,6 +132,9 @@ class Frame(BaseModel):
     task: Optional[Slot1Task] = None
     plan: Optional[Slot2Plan] = None
     pending: List[CutSpec] = Field(default_factory=list)
+    piece_jobs: List[str] = Field(default_factory=list)   # batch frames: job that owns each pending piece
+    station: Optional[str] = None                          # saw station this frame is attached to
+    note: str = ""                                         # e.g. "rebuilt from cart after restart"
     excluded: List[str] = Field(default_factory=list)   # source addrs rejected for the current piece
     step_counter: int = 0
     current: Optional[Slot3Execute] = None

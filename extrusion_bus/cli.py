@@ -63,6 +63,25 @@ def run_demo(state_path: Path, scope: str, job_id: str) -> int:
     return 0
 
 
+def run_printer_test(target: str, style: str, feed: str, png: Optional[str]) -> int:
+    from .printer import parse_target, render_escpos_label, render_label_image
+    from .registry import StockItem
+    reg = Registry()
+    item = reg.add_remnant("EXT-240-OPEN", 233.875, End.miter(45, Face.BACK), End.square())
+    prof = reg.profile("EXT-240-OPEN")
+    data = render_escpos_label(item, prof, style=style, feed=feed)
+    if png:
+        render_label_image(item, prof).save(png)
+    transport = parse_target(target)
+    try:
+        transport.send(data)
+    except OSError as exc:
+        print(f"FAILED {transport.describe()}: {exc}")
+        return 2
+    print(f"sent {len(data)} bytes to {transport.describe()} ({style}, feed={feed})")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="extbus")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -70,8 +89,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     d.add_argument("--state", type=Path, default=None, help="state_registry.json (default: temp file)")
     d.add_argument("--scope", default=DEFAULT_SCOPE)
     d.add_argument("--job", default="JOB-104")
-    sub.add_parser("serve", help="run the FastAPI bus (EXTBUS_STATE, EXTBUS_PORT, EXTBUS_PARSER)")
+    sub.add_parser("serve", help="run the FastAPI bus (EXTBUS_STATE, EXTBUS_PORT, EXTBUS_PARSER, EXTBUS_PRINTER)")
+    pt = sub.add_parser("printer-test", help="send a sample 2x1 label to a printer target")
+    pt.add_argument("--target", default="memory", help="net:host[:port] | file:/dev/usb/lp0 | memory")
+    pt.add_argument("--style", default="raster", choices=["raster", "native"])
+    pt.add_argument("--feed", default="ff", help="ff | gs_ff | none | lines:N")
+    pt.add_argument("--save-png", help="also write the rendered label bitmap to this path")
     args = ap.parse_args(argv)
+    if args.cmd == "printer-test":
+        return run_printer_test(args.target, args.style, args.feed, args.save_png)
     if args.cmd == "serve":
         from .server import main as serve
         serve()

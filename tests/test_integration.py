@@ -120,11 +120,11 @@ def test_garbage_then_unknown_part_then_valid_plan(reg):
 
 def test_three_naks_trip_the_dlq_and_leave_inventory_untouched(reg):
     reg.add_raw(PN, 288)
-    before = reg.state.model_dump(exclude={"dlq", "journal", "seq"})
+    before = reg.state.model_dump(exclude={"dlq", "journal", "seq", "frames"})
     frame = FabricationBus(reg, parser=lambda s, f: "{not json").open_frame("J", "gibberish")
     assert frame.phase == FramePhase.DLQ and frame.dlq.code == "PLAN_NAK_LIMIT" and frame.naks == 3
     assert len(reg.state.dlq) == 1 and reg.state.dlq[0]["code"] == "PLAN_NAK_LIMIT"
-    assert reg.state.model_dump(exclude={"dlq", "journal", "seq"}) == before
+    assert reg.state.model_dump(exclude={"dlq", "journal", "seq", "frames"}) == before
     assert bus_stage_is_noop(reg, frame)
 
 

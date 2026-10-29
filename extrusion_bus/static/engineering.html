@@ -6,7 +6,12 @@
 <div class="bar"><h1>Engineering</h1><select id="jobsel" aria-label="Job" style="flex:1 1 220px;min-height:44px"></select>
   <button class="sm" id="refresh">Refresh</button><span id="pill" class="pill warn">...</span><span id="relpill" class="pill ok" hidden>RELEASED</span></div>
 <div class="split">
-  <div class="pane" id="left"><h2>Sales package</h2><div id="meta"></div><div id="photos"></div><h3>Open items</h3><div id="items"></div></div>
+  <div class="pane" id="left">
+    <details id="batch" class="card"><summary><b>Shift batch</b> · nest several released jobs on shared stock</summary>
+      <div id="batchlist" style="margin:8px 0"></div>
+      <div class="row"><button class="sm primary" id="bcompile" disabled>Compile batch</button><button class="sm good" id="brelease" disabled>Release batch to bench</button></div>
+      <div id="bresult" style="margin-top:8px"></div></details>
+    <h2>Sales package</h2><div id="meta"></div><div id="photos"></div><h3>Open items</h3><div id="items"></div></div>
   <div class="pane" id="right">
     <h2>Dimensions <span class="muted" style="font-weight:400;font-size:.9rem">(inches; override to recalculate)</span></h2>
     <div class="grid g2" id="dims"></div>
@@ -161,17 +166,46 @@ function drawSide(m) {
     s('text', { x: X(m.proj_in / 2), y: Y(0) + 20, 'text-anchor': 'middle' }, `projection ${fmtIn(m.proj_in)} · drop ${fmtIn(m.drop_in)}`));
   return svg;
 }
+/* ---------------- shift batch ---------------- */
+let batchSel = new Set();
+async function loadBatchable() {
+  const jobs = await api('/api/engineering/batchable'), box = $('#batchlist');
+  batchSel = new Set([...batchSel].filter(j => jobs.some(x => x.job_id === j)));
+  box.replaceChildren(...(jobs.length ? jobs.map(j => h('label', { class: 'row', style: 'gap:8px;font-weight:700' },
+    h('input', { type: 'checkbox', style: 'width:28px;height:28px;flex:0 0 auto', 'data-job': j.job_id, checked: batchSel.has(j.job_id) || null, onchange: e => { e.target.checked ? batchSel.add(j.job_id) : batchSel.delete(j.job_id); syncBatchButtons(); } }),
+    `${j.job_id} · ${j.pending} piece(s) · ${j.profiles.join(', ')}`)) : [h('p', { class: 'muted' }, 'No released jobs waiting. Release at least two to batch them.')]));
+  syncBatchButtons();
+}
+function syncBatchButtons() { $('#bcompile').disabled = batchSel.size < 2; $('#brelease').disabled = true; }
+function batchTable(p) {
+  const rows = [['Virgin sticks', 'virgin_sticks'], ['Drops used', 'drops_used'], ['Drops created', 'remnants_created'], ['Lead cuts skipped', 'native_skips'], ['Scrap lb', 'scrap_lb'], ['Yield %', 'yield_pct']];
+  const sv = { virgin_sticks: p.saved.virgin_sticks, scrap_lb: p.saved.scrap_lb, yield_pct: p.saved.yield_pts, remnants_created: p.saved.remnants_gained };
+  return h('table', { id: 'batchtable' }, h('thead', {}, h('tr', {}, ['', 'Back to back', 'Batched', 'Saved'].map(t => h('th', {}, t)))),
+    h('tbody', {}, rows.map(([label, k]) => h('tr', {}, h('td', {}, label), h('td', { class: 'num' }, String(p.sequential[k])), h('td', { class: 'num' }, String(p.batch[k])), h('td', { class: 'num' }, sv[k] == null ? '' : String(sv[k]))))));
+}
+$('#bcompile').addEventListener('click', () => guard(async () => {
+  const p = await api('/api/engineering/batch-compile', { method: 'POST', body: { job_ids: [...batchSel] } });
+  $('#bresult').replaceChildren(h('div', { class: 'muted' }, `${p.batch_id} · ${p.strategy.replace(/_/g, ' ')} · ${p.batch.pieces} pieces`), batchTable(p),
+    p.batch.unmet ? h('div', { class: 'card crit' }, `${p.batch.unmet} piece(s) cannot be cut from current stock. Receive or order sticks first.`) : null);
+  $('#brelease').disabled = p.batch.unmet > 0;
+}));
+$('#brelease').addEventListener('click', () => guard(async () => {
+  const out = await api('/api/engineering/batch-release', { method: 'POST', body: { job_ids: [...batchSel] } });
+  toast(`${out.batch_id} released to the bench`); batchSel.clear();
+  $('#bresult').replaceChildren(h('div', { class: 'card ok', id: 'batchrel' }, h('b', {}, out.batch_id), ` · frame ${out.frame_id} · `, h('a', { href: '/#bench', target: '_top' }, 'Open on the Saw Bench →')));
+  await loadBatchable(); await loadJobs(jobId);
+}));
 /* ---------------- release ---------------- */
 $('#release').addEventListener('click', async () => {
   const btn = $('#release');
   if (armed !== jobId) { armed = jobId; btn.textContent = 'Tap again to confirm release'; setTimeout(() => { if (armed === jobId) { armed = null; btn.textContent = 'Release to Shop Floor'; } }, 5000); return; }
   armed = null; btn.disabled = true;
   const out = await guard(() => api('/api/engineering/release', { method: 'POST', body: { job_id: jobId, overrides: overrides() } }));
-  if (out) { toast(`Released: cart ${out.cart_addr}`); await loadJobs(jobId); await openJob(jobId); }
+  if (out) { toast(`Released: cart ${out.cart_addr}`); await loadJobs(jobId); await openJob(jobId); loadBatchable(); }
   btn.textContent = 'Release to Shop Floor'; if (last) btn.disabled = !(last.report.is_ready_for_engineering && !last.error);
 });
 $('#reset').addEventListener('click', () => { buildDims(); preview(); });
-$('#refresh').addEventListener('click', () => guard(async () => { await loadJobs(jobId); if (jobId) await openJob(jobId); }));
+$('#refresh').addEventListener('click', () => guard(async () => { await loadJobs(jobId); await loadBatchable(); if (jobId) await openJob(jobId); }));
 $('#jobsel').addEventListener('change', e => guard(() => openJob(e.target.value)));
-guard(async () => { const q = new URLSearchParams(location.search).get('job'); await loadJobs(q); if (q) await openJob(q); });
+guard(async () => { const q = new URLSearchParams(location.search).get('job'); await loadJobs(q); loadBatchable(); if (q) await openJob(q); });
 </script></body></html>

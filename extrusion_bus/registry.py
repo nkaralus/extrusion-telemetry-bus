@@ -38,6 +38,8 @@ SUBNETS: Dict[str, str] = {
 }
 _NETS = {k: ipaddress.ip_network(v) for k, v in SUBNETS.items()}
 JOURNAL_CAP = 5000
+MAX_TERMINAL_FRAMES = 50      # finished/dead frames kept for the audit trail
+MAX_SENT_PRINTS = 100
 
 
 class RegistryError(Exception):
@@ -179,6 +181,8 @@ class RegistryState(BaseModel):
     raw_usage: List[dict] = Field(default_factory=list)   # virgin pulls: {ts, profile, length_in}
     on_order: List[dict] = Field(default_factory=list)    # open vendor orders
     intakes: Dict[str, dict] = Field(default_factory=dict)  # latest sales intake + readiness per job
+    frames: Dict[str, dict] = Field(default_factory=dict)   # {frame_id: {"seq": n, "frame": Frame json}}
+    print_queue: List[dict] = Field(default_factory=list)   # transactional outbox of label jobs
 
 
 def rack_slot(profile: Profile, guaranteed_in: float) -> str:
@@ -206,6 +210,8 @@ class Registry:
         self.clock = clock
         self._lock = threading.RLock()
         self._depth = 0
+        self._post: List[Callable[[], None]] = []
+        self.recovered_from_backup = False
         self.state = state or RegistryState()
         if not self.state.control:
             self._bootstrap()
@@ -226,7 +232,20 @@ class Registry:
     def load(cls, path: os.PathLike, clock: Callable[[], float] = time.time) -> "Registry":
         p = Path(path)
         if p.exists():
-            reg = cls(RegistryState.model_validate_json(p.read_text()), path=p, clock=clock)
+            from_bak = False
+            try:
+                state = RegistryState.model_validate_json(p.read_text())
+            except Exception:                      # torn/corrupt main file: fall back to the previous version
+                bak = p.with_name(p.name + ".bak")
+                if not bak.exists():
+                    raise
+                state, from_bak = RegistryState.model_validate_json(bak.read_text()), True
+            reg = cls(state, path=p, clock=clock)
+            if from_bak:
+                reg.recovered_from_backup = True
+                reg.save()                          # rewrite a good main file from the backup
+                reg.log("RECOVERED_FROM_BACKUP")
+                reg.save()
             missing = [d for d in default_profiles() if d.part_number not in reg.state.profiles]
             if missing:  # registry written by an older release: backfill new catalog entries
                 with reg.transaction():
@@ -253,12 +272,36 @@ class Registry:
                 fh.write(data)
                 fh.flush()
                 os.fsync(fh.fileno())
+            self._keep_backup()
             os.replace(tmp, self.path)
+            self._fsync_dir(directory)             # make the rename itself survive power loss
         except BaseException:
             if os.path.exists(tmp):
                 os.unlink(tmp)
             raise
 
+    def _keep_backup(self) -> None:
+        """Hard-link the current file as ``.bak`` before it is replaced (no window without a main file)."""
+        if self.path is None or not self.path.exists():
+            return
+        bak = self.path.with_name(self.path.name + ".bak")
+        try:
+            if bak.exists():
+                bak.unlink()
+            os.link(self.path, bak)
+        except OSError:
+            pass                                    # filesystem without hard links: skip the backup
+
+    @staticmethod
+    def _fsync_dir(directory: Path) -> None:
+        try:
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass                                    # Windows cannot fsync a directory
     @contextmanager
     def transaction(self):
         """Atomic unit of work: all mutations land together or not at all."""
@@ -277,10 +320,24 @@ class Registry:
                 self._write()
             except BaseException:
                 self.state = snapshot
+                self._post.clear()
                 raise
             finally:
                 self._depth = 0
+            hooks, self._post = self._post, []      # only reached after a durable commit
+            for fn in hooks:
+                try:
+                    fn()
+                except Exception:                    # a hook must never undo or break a commit
+                    pass
 
+    def after_commit(self, fn: Callable[[], None]) -> None:
+        """Run ``fn`` once the outermost transaction is durably written (immediately if none is open)."""
+        with self._lock:
+            if self._depth > 0:
+                self._post.append(fn)
+            else:
+                fn()
     # ---- bookkeeping ----------------------------------------------------- #
     def _next_seq(self) -> int:
         self.state.seq += 1
@@ -495,6 +552,73 @@ class Registry:
 
     def scrap_total_lb(self) -> float:
         return round(sum(e.weight_lb for e in self.state.scrap_ledger), 3)
+
+    # ---- frame persistence (WIP saw frames survive a restart) ---------------- #
+    def save_frame(self, frame_id: str, frame_json: dict) -> None:
+        """Store a frame inside the CURRENT transaction (so it lands atomically with stock/cart changes)."""
+        with self.transaction():
+            self.state.frames[frame_id] = {"seq": self._next_seq(), "frame": frame_json}
+            dead = sorted((v["seq"], k) for k, v in self.state.frames.items()
+                          if v["frame"].get("phase") in ("done", "dlq"))
+            for _, k in dead[: max(0, len(dead) - MAX_TERMINAL_FRAMES)]:
+                del self.state.frames[k]
+
+    # ---- print outbox ----------------------------------------------------------- #
+    def enqueue_print(self, addr: str, uid: str, title: str, payload_b64: str, reason: str = "RACKED") -> dict:
+        with self.transaction():
+            for j in self.state.print_queue:           # one live job per remnant
+                if j["addr"] == addr and j["status"] == "pending":
+                    return j
+            now = self.clock()
+            job = {"id": self._next_seq(), "addr": addr, "uid": uid, "title": title, "reason": reason,
+                   "payload_b64": payload_b64, "status": "pending", "attempts": 0, "last_error": "",
+                   "created_ts": now, "next_try_ts": now, "sent_ts": None}
+            self.state.print_queue.append(job)
+            return job
+
+    def due_prints(self, now: Optional[float] = None) -> List[dict]:
+        now = self.clock() if now is None else now
+        with self._lock:
+            return [dict(j) for j in self.state.print_queue if j["status"] == "pending" and j["next_try_ts"] <= now]
+
+    def mark_print_sent(self, job_id: int) -> None:
+        with self.transaction():
+            for j in self.state.print_queue:
+                if j["id"] == job_id:
+                    j.update(status="sent", sent_ts=self.clock(), last_error="")
+            sent = [j for j in self.state.print_queue if j["status"] == "sent"]
+            drop = {j["id"] for j in sent[: max(0, len(sent) - MAX_SENT_PRINTS)]}
+            self.state.print_queue = [j for j in self.state.print_queue if j["id"] not in drop]
+
+    def mark_print_failed(self, job_id: int, error: str, max_attempts: int = 8, base_delay: float = 1.0) -> None:
+        with self.transaction():
+            for j in self.state.print_queue:
+                if j["id"] == job_id:
+                    j["attempts"] += 1
+                    j["last_error"] = error[:200]
+                    if j["attempts"] >= max_attempts:
+                        j["status"] = "failed"
+                    else:
+                        j["next_try_ts"] = self.clock() + min(60.0, base_delay * 2 ** (j["attempts"] - 1))
+
+    def expedite_prints(self) -> int:
+        """Boot: forget retry delays so queued labels are tried right away."""
+        with self.transaction():
+            n = 0
+            for j in self.state.print_queue:
+                if j["status"] == "pending" and j["next_try_ts"] > self.clock():
+                    j["next_try_ts"] = self.clock()
+                    n += 1
+            return n
+
+    def retry_failed_prints(self) -> int:
+        with self.transaction():
+            n = 0
+            for j in self.state.print_queue:
+                if j["status"] == "failed":
+                    j.update(status="pending", attempts=0, next_try_ts=self.clock())
+                    n += 1
+            return n
 
     def save_intake(self, job_id: str, package: dict, report: dict) -> None:
         with self.transaction():

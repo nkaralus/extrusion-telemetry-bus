@@ -76,7 +76,7 @@ def test_failed_atomic_write_leaves_old_file_and_rolls_back(reg, tmp_path, monke
     monkeypatch.undo()
     assert path.read_text() == before_disk
     assert reg.state.model_dump() == before_mem
-    assert [p.name for p in tmp_path.iterdir()] == ["state_registry.json"]  # no tmp litter
+    assert not [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]  # no tmp litter
 
 
 def test_subnet_exhaustion_is_atomic(reg):

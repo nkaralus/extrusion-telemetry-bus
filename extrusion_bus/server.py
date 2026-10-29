@@ -14,17 +14,22 @@ Zero cloud.  Everything runs on the shop LAN against state_registry.json.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import threading
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
+from .batch import BatchError, BatchPlan, compile_batch, release_batch
 from .bus import AckResult, AdoptResult, CommitResult, FabricationBus, GateRejected
 from .gates import CutProposal, GateReport
 from .labels import Label, build_label
@@ -34,7 +39,10 @@ from .mule_frame import CutLine, Frame, Slot2Plan, Slot3Execute, Slot4Guard
 from .nesting import NestPlan, compile_cut_list
 from .physics import CutSpec, parse_end_condition, parse_inches
 from .parametric import POST_PROFILE, RAFTER_PROFILE, ParametricError, ParametricModel, solve_envelope
+from .printer import PrinterService, label_payload_b64, printer_from_env
 from .procurement import ReorderAlert, reorder_report
+from .recovery import restore
+from .telemetry import MAX_MESSAGE_BYTES, StationHub, event_from_ack, frame_for_station, handle as ws_handle, saw_state
 from .quoting import Quote, quote_job
 from .sales_gates import dims_valid, evaluate_intake
 from .vision import VisionAnalyzer
@@ -185,6 +193,21 @@ class UploadOut(BaseModel):
     report: EngineeringReadinessReport
 
 
+class BatchIn(BaseModel):
+    job_ids: List[str]
+    allow_purchase: bool = False
+
+
+class BatchReleaseOut(BaseModel):
+    batch_id: str
+    frame_id: str
+    plan: BatchPlan
+
+
+class ReprintIn(BaseModel):
+    addr: str
+
+
 class PreviewIn(BaseModel):
     job_id: str
     overrides: Dict[str, Any] = {}
@@ -225,16 +248,40 @@ def default_parser(registry: Registry) -> PlanParser:
 
 
 def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser] = None,
-               analyzer: Optional[PhotoAnalyzer] = None, media_dir: Optional[os.PathLike] = None) -> FastAPI:
+               analyzer: Optional[PhotoAnalyzer] = None, media_dir: Optional[os.PathLike] = None,
+               printer: Optional[PrinterService] = None) -> FastAPI:
     if registry is None:
         registry = Registry.load(os.environ.get("EXTBUS_STATE", "state_registry.json"))
     bus = FabricationBus(registry, parser=parser or default_parser(registry))
-    frames: Dict[str, Frame] = {}
+    hub = StationHub()
+    recovery = restore(bus)                       # open frames come back at their exact step BEFORE any traffic
+    frames = bus.frames
+    printer = printer or printer_from_env(registry, on_event=hub.publish_all)
+    if printer is not None:                       # stickers go through the durable outbox
+        printer.on_event = printer.on_event or hub.publish_all
+        bus.print_labels, bus.on_label_queued = True, printer.wake
     lock = threading.RLock()  # one writer at a time: deterministic closed loop
     media_root = Path(media_dir or os.environ.get("EXTBUS_MEDIA", "media")).resolve()
     media_root.mkdir(parents=True, exist_ok=True)
-    app = FastAPI(title="extrusion-telemetry-bus", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        if printer is not None:
+            printer.start()
+        yield
+        if printer is not None:
+            printer.stop()
+
+    app = FastAPI(title="extrusion-telemetry-bus", version="0.5.0", lifespan=lifespan)
     app.state.bus, app.state.frames, app.state.media_dir = bus, frames, media_root
+    app.state.hub, app.state.printer, app.state.recovery = hub, printer, recovery
+
+    def notify(frame: Frame, event: Optional[dict] = None) -> None:
+        """Push HTTP-driven changes to any WebSocket displays on the frame's station."""
+        if frame.station:
+            if event:
+                hub.publish(frame.station, event)
+            hub.publish(frame.station, saw_state(bus, frame.station, frame))
 
     @app.middleware("http")
     async def _nosniff(request, call_next):
@@ -316,7 +363,6 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
     def order(body: OrderIn) -> StepOut:
         with lock:
             frame = bus.open_frame(body.job_id, body.scope)
-            frames[frame.frame_id] = frame
             out = step_out(frame, None)
             return out
 
@@ -326,14 +372,18 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
             frame = frame_or_404(fid)
             if frame.current is not None:
                 return step_out(frame, frame.current)
-            return step_out(frame, bus.stage_next_cut(frame, station))
+            out = step_out(frame, bus.stage_next_cut(frame, station))
+            notify(frame)
+            return out
 
     @app.post("/order/{fid}/ack", response_model=AckResult)
     def order_ack(fid: str, body: AckIn) -> AckResult:
         with lock:
             frame = frame_or_404(fid)
             try:
-                return bus.ack(frame, body.result, body.actual_length_in, body.station)
+                ack = bus.ack(frame, body.result, body.actual_length_in, body.station)
+                notify(frame, event_from_ack(ack, body.result))
+                return ack
             except GateRejected as exc:
                 raise HTTPException(409, detail=exc.report.model_dump(mode="json")) from exc
             except RuntimeError as exc:
@@ -606,11 +656,129 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
         with lock:
             frame = frame_or_404(fid)
             try:
-                return step_out(frame, bus.flip_current(frame, station))
+                out = step_out(frame, bus.flip_current(frame, station))
+                notify(frame, {"type": "event", "event": "FLIP_MITER"})
+                return out
             except RuntimeError as exc:
                 raise HTTPException(409, str(exc)) from exc
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
+
+    # ---------------- Phase 5: live telemetry, printing, batch, recovery ---------------- #
+    @app.websocket("/ws/saw/{station_id}")
+    async def ws_saw(ws: WebSocket, station_id: str) -> None:
+        st = registry.find_station(station_id)
+        if st is None:
+            await ws.close(code=4404)
+            return
+        await ws.accept()
+        await hub.register(st.name, ws)
+
+        def locked(fn, *a):
+            with lock:
+                return fn(*a)
+
+        try:
+            init = await run_in_threadpool(locked, lambda: saw_state(bus, st.name, frame_for_station(bus, st.name)))
+            await ws.send_json({**init, "seq": 0, "station": st.name, "station_addr": st.addr, "hello": True})
+            while True:
+                text = await ws.receive_text()
+                if len(text.encode()) > MAX_MESSAGE_BYTES:
+                    await ws.send_json({"type": "error", "code": "TOO_LARGE", "message": "message too large"})
+                    continue
+                try:
+                    msg = json.loads(text)
+                    if not isinstance(msg, dict):
+                        raise ValueError
+                except ValueError:
+                    await ws.send_json({"type": "error", "code": "BAD_JSON", "message": "send a JSON object"})
+                    continue
+                replies, casts = await run_in_threadpool(locked, ws_handle, bus, st.name, msg)
+                for r in replies:
+                    await ws.send_json(r)
+                for c in casts:
+                    await hub.broadcast(st.name, c)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await hub.unregister(st.name, ws)
+
+    @app.get("/api/recovery")
+    def get_recovery() -> dict:
+        return recovery.model_dump(mode="json")
+
+    @app.get("/api/printer")
+    def printer_status() -> dict:
+        return printer.status() if printer is not None else {"configured": False}
+
+    @app.get("/api/printer/queue")
+    def printer_queue() -> List[dict]:
+        with lock:
+            return [{k: v for k, v in j.items() if k != "payload_b64"} for j in registry.state.print_queue[-50:]]
+
+    @app.post("/api/printer/reprint")
+    def printer_reprint(body: ReprintIn) -> dict:
+        if printer is None:
+            raise HTTPException(409, "no printer configured (set EXTBUS_PRINTER)")
+        with lock:
+            item = registry.state.stock.get(body.addr)
+            if item is None or item.kind != StockKind.REMNANT:
+                raise HTTPException(404, f"{body.addr} is not a racked remnant")
+            title, payload = label_payload_b64(item, registry.profile(item.profile))
+            job = registry.enqueue_print(item.addr, item.uid, title, payload, reason="REPRINT")
+        printer.wake()
+        return {"job_id": job["id"], "status": job["status"]}
+
+    @app.post("/api/printer/retry")
+    def printer_retry() -> dict:
+        if printer is None:
+            raise HTTPException(409, "no printer configured (set EXTBUS_PRINTER)")
+        with lock:
+            n = registry.retry_failed_prints()
+        printer.wake()
+        return {"requeued": n}
+
+    @app.post("/api/printer/test")
+    def printer_test() -> dict:
+        if printer is None:
+            raise HTTPException(409, "no printer configured (set EXTBUS_PRINTER)")
+        from .printer import render_escpos_label
+        from .registry import StockItem
+        from .physics import End as _End
+        pn = next(iter(registry.state.profiles))
+        item = StockItem(addr="10.2.2.0", uid="uid://inv/remnant/TEST", kind=StockKind.REMNANT, profile=pn,
+                         long_point_in=100.0, guaranteed_square_in=96.0, bin_location="TEST-LABEL",
+                         end_a=_End.square(), end_b=_End.square())
+        try:
+            printer.transport.send(render_escpos_label(item, registry.profile(pn)))
+        except Exception as exc:
+            raise HTTPException(502, f"printer unreachable: {exc}") from exc
+        return {"sent": True, "target": printer.transport.describe()}
+
+    @app.get("/api/engineering/batchable")
+    def batchable() -> List[dict]:
+        with lock:
+            return [{"job_id": f.job_id, "frame_id": f.frame_id, "pending": len(f.pending),
+                     "profiles": sorted({s.profile for s in f.pending})}
+                    for f in frames.values()
+                    if f.phase.value == "active" and f.pending and not f.job_id.startswith("BATCH-")]
+
+    @app.post("/api/engineering/batch-compile", response_model=BatchPlan)
+    def batch_compile(body: BatchIn) -> BatchPlan:
+        with lock:
+            try:
+                return compile_batch(bus, body.job_ids, allow_purchase=body.allow_purchase)
+            except BatchError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+
+    @app.post("/api/engineering/batch-release", response_model=BatchReleaseOut)
+    def batch_release(body: BatchIn) -> BatchReleaseOut:
+        with lock:
+            try:
+                plan, frame = release_batch(bus, body.job_ids)
+            except BatchError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            return BatchReleaseOut(batch_id=plan.batch_id, frame_id=frame.frame_id, plan=plan)
 
     @app.get("/api/inventory")
     def inventory() -> dict:
@@ -627,6 +795,7 @@ def create_app(registry: Optional[Registry] = None, parser: Optional[PlanParser]
                 racks.append({"profile": pn, "racked": n, "slots": cap, "ratio": round(ratio, 3),
                               "full": ratio >= RACK_FULL_RATIO})
             return {"stock": stock, "racks": racks, "hopper_addr": s.hopper_addr,
+                    "stations": [{"name": st.name, "addr": st.addr} for st in s.stations.values()],
                     "scrap_total_lb": registry.scrap_total_lb(), "unaccounted": s.unaccounted,
                     "on_order": s.on_order, "dlq": s.dlq[-20:],
                     "carts": [{"job_id": c.job_id, "addr": c.addr, "pieces": len(c.pieces)} for c in s.carts.values()]}
