@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Extrusion Bus</title><link rel="stylesheet" href="/static/app.css">
+</head><body>
+<nav class="tabs" role="tablist" id="tabs"></nav>
+<div id="p-sales" class="panel"><iframe class="view" data-src="/sales" title="Sales"></iframe></div>
+<div id="p-engineering" class="panel"><iframe class="view" data-src="/engineering" title="Engineering"></iframe></div>
+<div id="p-bench" class="panel"><div class="wrap">
+  <h2>Saw Bench</h2>
+  <div class="card"><h3>Released jobs</h3><div id="frames"></div>
+    <details><summary>Open an order from scope text</summary>
+      <div class="grid g2" style="margin-top:8px"><input type="text" id="o-job" placeholder="Job ID"><input type="text" id="o-scope" placeholder='e.g. four 58" braces square'></div>
+      <button class="primary" id="o-open" style="margin-top:8px">Open order</button></details></div>
+  <div class="row" style="margin:6px 0"><label class="field" style="flex:0 1 220px"><span>Saw station</span><select id="b-station"></select></label>
+    <span id="b-live" class="pill bad" title="live telemetry link">OFFLINE</span><span id="b-print" class="muted"></span></div>
+  <div id="bench" hidden>
+    <div class="row"><b id="b-title"></b><span id="b-phase" class="pill warn"></span><span id="b-pending" class="pill"></span></div>
+    <div id="b-next" class="big" style="margin:6px 0"></div>
+    <div id="b-step" class="stepbox">—</div>
+    <div id="b-blade" class="card" style="margin:8px 0">Blade: —</div>
+    <div id="b-guard" style="margin:8px 0"></div>
+    <div class="grid g3" style="margin:10px 0">
+      <button class="good" id="k-ok">1 · CUT OK</button><button id="k-flip">2 · FLIP MITER</button><button class="danger" id="k-nak">3 · MISCUT</button></div>
+    <div class="row"><input type="text" id="b-actual" placeholder="Actual length if miscut (optional)" style="flex:2"><button id="k-miss">Piece missing</button><button id="k-next">Stage next</button></div>
+    <div id="b-result" class="card" hidden></div>
+  </div>
+  <div class="card"><h3>Adopt a legacy drop</h3><p class="muted">Untagged piece from the boneyard: log it once, get a sticker.</p>
+    <div class="grid g2">
+      <label class="field"><span>Profile</span><input type="text" id="a-prof" list="profiles" value="EXT-240-OPEN"><datalist id="profiles"></datalist></label>
+      <label class="field"><span>Tape length</span><input type="text" id="a-len" placeholder='74 1/4'></label>
+      <label class="field"><span>End A</span><select id="a-ea"></select></label>
+      <label class="field"><span>End B</span><select id="a-eb"></select></label></div>
+    <button class="primary" id="a-go" style="margin-top:8px">Register &amp; label</button><div id="a-out"></div></div>
+</div></div>
+<div id="p-inventory" class="panel"><div class="wrap"><h2>Inventory</h2><div id="inv-racks"></div><h3>Label printer</h3><div id="inv-printer" class="card"></div><h3>Reorder watch</h3><div id="inv-reorder"></div>
+  <div class="card"><h3>Vendor order / receipt</h3><div class="grid g3"><select id="po-prof"></select><input type="text" id="po-qty" value="5" inputmode="numeric"><div class="row"><button class="sm primary" id="po-order">Order</button><button class="sm" id="po-recv">Receive</button></div></div></div>
+  <h3>Stock <select id="inv-filter" style="width:auto;min-height:40px"><option value="">all</option><option value="remnant">drops</option><option value="raw">virgin</option></select></h3><div id="inv-stock"></div></div></div>
+<div id="p-accounting" class="panel"><div class="wrap"><h2>Accounting</h2><div id="acc-sum"></div><h3>Scrap ledger</h3><div id="acc-scrap"></div><h3>Job carts</h3><div id="acc-carts"></div><h3>Unaccounted (ghost drops)</h3><div id="acc-un"></div></div></div>
+<script src="/static/common.js"></script>
+<script>
+const { $, $$, h, api, fmtIn, money, toast, guard } = X;
+const TABS = [['sales', 'Sales'], ['engineering', 'Engineering'], ['bench', 'Saw Bench'], ['inventory', 'Inventory'], ['accounting', 'Accounting']];
+const LOADERS = { bench: loadBench, inventory: loadInventory, accounting: loadAccounting };
+function show(name) {
+  if (!TABS.some(t => t[0] === name)) name = 'sales';
+  $$('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + name));
+  const f = $('#p-' + name + ' iframe'); if (f && !f.src) f.src = f.dataset.src;
+  if (LOADERS[name]) guard(LOADERS[name]);
+  if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+for (const [id, label] of TABS) $('#tabs').append(h('button', { role: 'tab', 'data-tab': id, id: 'tab-' + id, 'aria-selected': 'false', onclick: () => show(id) }, label));
+window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+
+/* ---------- saw bench (live over WebSocket, HTTP fallback) ---------- */
+let fid = null, cur = null, busy = false, lastPhase = '', ws = null, wsOpen = false, station = 'SAW_1', retry = 0;
+const ENDS = [['square', 'Square'], ['miter_45_spline', '45° miter, long point on spline'], ['miter_45_back', '45° miter, long point on back']];
+for (const id of ['a-ea', 'a-eb']) for (const [v, l] of ENDS) $('#' + id).append(h('option', { value: v }, l));
+const kind = k => k === 'remnant' ? 'drop' : 'virgin';
+
+function setLive(on) { const p = $('#b-live'); p.textContent = on ? 'LIVE' : 'OFFLINE · HTTP'; p.className = 'pill ' + (on ? 'ok' : 'bad'); }
+function connect() {
+  const mine = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/saw/${encodeURIComponent(station)}`);
+  ws = mine;
+  mine.onopen = () => { if (ws !== mine) return; wsOpen = true; retry = 0; setLive(true); };
+  mine.onmessage = e => { if (ws === mine) onMsg(JSON.parse(e.data)); };
+  mine.onclose = () => { if (ws !== mine) return; wsOpen = false; setLive(false); setTimeout(() => { if (ws === mine) connect(); }, Math.min(5000, 400 * 2 ** retry++)); };
+}
+function send(m) { if (wsOpen) { ws.send(JSON.stringify(m)); return true; } return false; }
+function onMsg(m) {
+  if (m.type === 'state') renderState(m);
+  else if (m.type === 'event') showEvent(m);
+  else if (m.type === 'print') { $('#b-print').textContent = `label ${m.addr}: ${m.status}`; if (m.status !== 'sent') toast(`Printer: ${m.error || m.status}`, true); }
+  else if (m.type === 'error') { busy = false; toast(`${m.code}: ${m.message}`, true); }
+}
+function renderState(st) {
+  const f = st.frame, step = st.step;
+  cur = step || null;
+  if (f) { fid = f.frame_id; $('#bench').hidden = false; $('#b-title').textContent = `${f.job_id} · frame ${f.frame_id}` + (f.note ? ` · ${f.note}` : ''); }
+  const phase = f ? f.phase : '';
+  $('#b-phase').textContent = phase || 'idle'; $('#b-phase').className = 'pill ' + (phase === 'done' ? 'ok' : phase === 'dlq' ? 'bad' : 'warn');
+  $('#b-pending').textContent = f ? `${f.pending} left` : '';
+  $('#b-step').textContent = step ? step.instruction : phase === 'done' ? 'JOB COMPLETE' : st.dlq ? `STOPPED · ${st.dlq.code}: ${st.dlq.message}` : f ? 'Press Stage next' : 'Attach a job';
+  $('#b-next').textContent = step ? `PULL ${step.source_addr} · ${step.source_bin}` : '';
+  const bl = st.blade;
+  $('#b-blade').textContent = bl ? `Blade ${bl.angle_deg}° · swing ${bl.swing.toUpperCase()} · fence ${fmtIn(bl.fence_in)} · prep ${bl.prep.mode}` + (bl.prep.trim_in ? ` (trim ${fmtIn(bl.prep.trim_in)})` : '') + ` · leaves a ${fmtIn(bl.expected_drop_in)} drop (sq ${fmtIn(bl.expected_square_in)})` : 'Blade: —';
+  $('#b-guard').replaceChildren(...((st.guard || []).map(v => h('span', { class: 'chip' }, `${v.gate} ${v.code}`))));
+  if (phase !== lastPhase && phase === 'done') toast('Job complete');
+  lastPhase = phase; busy = false;
+}
+function showEvent(ev) {
+  if (ev.event === 'FLIP_MITER') { toast('Flipped: long points moved to the other face'); return; }
+  if (!ev.commit) { toast('Drop purged; re-routed'); return; }
+  const c = ev.commit, r = $('#b-result'); r.hidden = false;
+  r.replaceChildren(...[h('div', { class: 'big', id: 'screen' }, c.screen),
+    h('div', { class: 'muted' }, `${c.outcome} · source ${c.source_addr}` + (c.leftover_addr ? ` · new drop ${c.leftover_addr}` : '') + (c.scrap_lb ? ` · scrap ${c.scrap_lb} lb` : '') + ` · ${ev.elapsed_ms} ms`),
+    c.label_lines ? h('pre', {}, c.label_lines.join('\n')) : null].filter(Boolean));
+}
+async function loadBench() {
+  const [frames, inv] = await Promise.all([api('/api/frames'), api('/api/inventory')]);
+  const sel = $('#b-station');
+  if (!sel.options.length) { for (const s of inv.stations) sel.append(h('option', { value: s.name }, `${s.name} · ${s.addr}`)); sel.value = station; connect(); }
+  const box = $('#frames'); box.replaceChildren();
+  const live = frames.filter(f => f.phase === 'active' || f.phase === 'dlq');
+  if (!live.length) box.append(h('p', { class: 'muted' }, 'No released jobs waiting. Release one from Engineering.'));
+  for (const f of live) box.append(h('div', { class: 'row card', 'data-frame': f.frame_id }, h('b', {}, f.job_id), `${f.pending} piece(s) left · ${f.phase}`, h('button', { class: 'primary sm', onclick: () => pickFrame(f) }, 'Work this job')));
+  $('#profiles').replaceChildren(...inv.racks.map(r => h('option', { value: r.profile })));
+}
+$('#b-station').addEventListener('change', e => { station = e.target.value; if (ws) { const old = ws; ws = null; old.close(); } wsOpen = false; setLive(false); fid = null; cur = null; $('#bench').hidden = true; connect(); });
+function pickFrame(f) {
+  fid = f.frame_id; $('#bench').hidden = false; $('#b-title').textContent = `${f.job_id} · frame ${fid}`; $('#b-result').hidden = true;
+  if (wsOpen) { send({ type: 'attach', frame_id: fid }); send({ type: 'stage' }); } else stage();
+}
+function showStep(out) {   // HTTP fallback shapes -> the same renderer
+  const step = out.step || out.next_step, phase = out.phase || out.frame_phase, g = out.guard || out.next_guard;
+  renderState({ frame: { frame_id: fid, job_id: ($('#b-title').textContent.split(' · ')[0] || ''), phase, pending: out.pending == null ? '?' : out.pending }, step, guard: g ? g.verdicts : null, blade: null, dlq: out.dlq });
+}
+async function stage() { if (!fid) return; if (send({ type: 'stage' })) return; await guard(async () => showStep(await api(`/order/${fid}/next`, { method: 'POST' }))); }
+async function act(key, result) {   // key: macro-pad key, result: HTTP ack name
+  if (!fid || !cur || busy) return; busy = true;
+  const a = parseFloat($('#b-actual').value);
+  if (send(Object.assign({ type: 'key', key }, key === '3' && !isNaN(a) ? { actual_length_in: a } : {}))) { $('#b-actual').value = ''; setTimeout(() => { busy = false; }, 1500); return; }
+  await guard(async () => {
+    const body = { result }; if (result === 'MISCUT_NAK' && !isNaN(a)) body.actual_length_in = a;
+    const out = await api(`/order/${fid}/ack`, { method: 'POST', body });
+    showEvent({ event: result, commit: out.commit && { outcome: out.commit.outcome, screen: out.commit.screen, source_addr: out.commit.source_addr, leftover_addr: out.commit.leftover_addr, scrap_lb: out.commit.scrap_lb, label_lines: out.commit.label && out.commit.label.lines }, elapsed_ms: out.elapsed_ms });
+    $('#b-actual').value = ''; showStep(out);
+  });
+  busy = false;
+}
+async function flip() {
+  if (!fid || !cur || busy) return; busy = true;
+  if (send({ type: 'key', key: '2' })) { setTimeout(() => { busy = false; }, 1500); return; }
+  await guard(async () => showStep(await api(`/order/${fid}/flip`, { method: 'POST' }))); busy = false;
+}
+$('#k-ok').onclick = () => act('1', 'CUT_OK'); $('#k-nak').onclick = () => act('3', 'MISCUT_NAK'); $('#k-miss').onclick = () => act('4', 'PIECE_MISSING'); $('#k-flip').onclick = flip; $('#k-next').onclick = stage;
+document.addEventListener('keydown', e => {            // USB macro pad: key 1 / 2 / 3
+  if (!$('#p-bench').classList.contains('on') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if (e.key === '1') act('1', 'CUT_OK'); else if (e.key === '2') flip(); else if (e.key === '3') act('3', 'MISCUT_NAK');
+});
+$('#o-open').onclick = () => guard(async () => {
+  const out = await api('/order', { method: 'POST', body: { job_id: $('#o-job').value.trim(), scope: $('#o-scope').value.trim() } });
+  if (out.dlq) { toast(`${out.dlq.code}: ${out.dlq.message}`, true); return; }
+  pickFrame({ frame_id: out.frame_id, job_id: $('#o-job').value.trim() }); });
+$('#a-go').onclick = () => guard(async () => {
+  const body = { profile: $('#a-prof').value.trim(), tape_in: $('#a-len').value.trim(), end_a: $('#a-ea').value, end_b: $('#a-eb').value };
+  if (fid && lastPhase === 'dlq') body.frame_id = fid;
+  const r = await api('/api/saw/adopt-drop', { method: 'POST', body });
+  $('#a-out').replaceChildren(h('div', { class: 'card ok', id: 'adopted' }, h('div', { class: 'big' }, r.bin_location), h('div', {}, `${r.addr} · square ${fmtIn(r.guaranteed_square_in)}` + (r.below_remnant_min ? ' · under 36"' : '')), h('pre', {}, r.label.lines.join('\n'))));
+  if (r.next_step && !wsOpen) showStep({ step: r.next_step, phase: 'active' });
+});
+
+/* ---------- inventory ---------- */
+async function loadPrinter() {
+  const p = await api('/api/printer'), box = $('#inv-printer');
+  if (!p.configured) { box.replaceChildren(h('b', {}, 'No printer configured'), h('div', { class: 'muted' }, 'Set EXTBUS_PRINTER (net:host:9100 or file:/dev/usb/lp0) and restart. Labels still show on the Saw Bench.')); return; }
+  box.replaceChildren(h('div', { class: 'row' }, h('b', { id: 'pr-target' }, p.target), h('span', { class: 'pill ' + (p.running ? 'ok' : 'bad') }, p.running ? 'RUNNING' : 'STOPPED'),
+    h('span', {}, `${p.pending} queued · ${p.failed} failed · ${p.sent_total} sent`), p.last_latency_ms != null ? h('span', { class: 'muted' }, `last ${p.last_latency_ms} ms`) : null),
+    p.last_error ? h('div', { class: 'muted' }, 'last error: ' + p.last_error) : null,
+    h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'sm', id: 'pr-test', onclick: () => guard(async () => { await api('/api/printer/test', { method: 'POST' }); toast('Test label sent'); await loadPrinter(); }) }, 'Print test label'),
+      h('button', { class: 'sm', id: 'pr-retry', onclick: () => guard(async () => { const r = await api('/api/printer/retry', { method: 'POST' }); toast(`${r.requeued} job(s) re-queued`); await loadPrinter(); }) }, 'Retry failed')));
+}
+async function loadInventory() {
+  loadPrinter();
+  const [inv, alerts] = await Promise.all([api('/api/inventory'), api('/api/procurement/reorder')]);
+  $('#inv-racks').replaceChildren(h('div', { class: 'grid g2' }, inv.racks.map(r => h('div', { class: 'card' }, h('b', {}, r.profile), ` ${r.racked}/${r.slots} drops${r.full ? ' · FULL (new remainders go to scrap)' : ''}`,
+    h('div', { class: 'bargauge' + (r.full ? ' full' : '') }, h('i', { style: `width:${Math.min(100, r.ratio * 100)}%` }))))));
+  $('#inv-reorder').replaceChildren(table(['Profile', 'Status', 'On hand', 'On order', 'Burn/day', 'Cover (d)', 'Lead (d)', 'Order'], alerts.map(a =>
+    [a.profile, h('span', { class: 'chip' }, a.status), a.on_hand_sticks, a.on_order_sticks, a.burn_sticks_per_day, a.days_of_cover == null ? '—' : a.days_of_cover, a.lead_time_days, a.suggested_order_sticks || ''])));
+  const sel = $('#po-prof'); if (!sel.options.length) for (const r of inv.racks) sel.append(h('option', { value: r.profile }, r.profile));
+  window._inv = inv; renderStock();
+}
+function renderStock() {
+  const f = $('#inv-filter').value, rows = (window._inv ? window._inv.stock : []).filter(i => !f || i.kind === f);
+  $('#inv-stock').replaceChildren(table(['Addr', 'Kind', 'Profile', 'Long', 'Square', 'End A', 'End B', 'Bin', 'Job'], rows.map(i =>
+    [i.addr, kind(i.kind) + (i.legacy ? ' (legacy)' : ''), i.profile, fmtIn(i.long_point_in), fmtIn(i.guaranteed_square_in), i.end_a, i.end_b, i.bin_location || '', i.allocated_job_id || ''])));
+}
+$('#inv-filter').onchange = renderStock;
+for (const [id, path] of [['po-order', 'order'], ['po-recv', 'receive']]) $('#' + id).onclick = () => guard(async () => {
+  await api('/api/procurement/' + path, { method: 'POST', body: { profile: $('#po-prof').value, qty: parseInt($('#po-qty').value, 10) } });
+  toast(path === 'order' ? 'Order placed' : 'Sticks received'); await loadInventory(); });
+function table(head, rows) {
+  return h('table', {}, h('thead', {}, h('tr', {}, head.map(t => h('th', {}, t)))), h('tbody', {}, rows.length ? rows.map(r => h('tr', {}, r.map(c => h('td', {}, c == null ? '' : c)))) : h('tr', {}, h('td', { colspan: head.length, class: 'muted' }, 'none'))));
+}
+
+/* ---------- accounting ---------- */
+async function loadAccounting() {
+  const [led, inv] = await Promise.all([api('/ledger/scrap'), api('/api/inventory')]);
+  const by = {}; for (const e of led.entries) { by[e.reason] = by[e.reason] || { n: 0, lb: 0 }; by[e.reason].n++; by[e.reason].lb += e.weight_lb; }
+  $('#acc-sum').replaceChildren(h('div', { class: 'card' }, h('div', { class: 'big', id: 'scraptotal' }, led.total_lb.toFixed(2) + ' lb scrap'), h('div', { class: 'muted' }, `hopper ${inv.hopper_addr}`),
+    h('div', {}, Object.entries(by).map(([k, v]) => h('span', { class: 'chip' }, `${k}: ${v.n} · ${v.lb.toFixed(2)} lb`)))));
+  $('#acc-scrap').replaceChildren(table(['#', 'Profile', 'Length', 'Weight lb', 'Reason', 'Job'], led.entries.slice(-50).reverse().map(e => [e.seq, e.profile, fmtIn(e.length_in), e.weight_lb, e.reason, e.job_id || ''])));
+  $('#acc-carts').replaceChildren(table(['Job', 'Cart', 'Pieces cut'], inv.carts.map(c => [c.job_id, c.addr, c.pieces])));
+  $('#acc-un').replaceChildren(table(['Addr', 'Profile', 'Long', 'By'], inv.unaccounted.map(u => [u.addr, u.profile, fmtIn(u.long_point_in), u.reported_by])));
+}
+show(location.hash.slice(1) || 'sales');
+</script></body></html>

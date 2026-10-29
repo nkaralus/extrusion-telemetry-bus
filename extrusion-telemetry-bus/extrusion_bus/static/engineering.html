@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Engineering Inspection</title><link rel="stylesheet" href="/static/app.css">
+</head><body>
+<div class="bar"><h1>Engineering</h1><select id="jobsel" aria-label="Job" style="flex:1 1 220px;min-height:44px"></select>
+  <button class="sm" id="refresh">Refresh</button><span id="pill" class="pill warn">...</span><span id="relpill" class="pill ok" hidden>RELEASED</span></div>
+<div class="split">
+  <div class="pane" id="left">
+    <details id="batch" class="card"><summary><b>Shift batch</b> · nest several released jobs on shared stock</summary>
+      <div id="batchlist" style="margin:8px 0"></div>
+      <div class="row"><button class="sm primary" id="bcompile" disabled>Compile batch</button><button class="sm good" id="brelease" disabled>Release batch to bench</button></div>
+      <div id="bresult" style="margin-top:8px"></div></details>
+    <h2>Sales package</h2><div id="meta"></div><div id="photos"></div><h3>Open items</h3><div id="items"></div></div>
+  <div class="pane" id="right">
+    <h2>Dimensions <span class="muted" style="font-weight:400;font-size:.9rem">(inches; override to recalculate)</span></h2>
+    <div class="grid g2" id="dims"></div>
+    <div class="row" style="margin:8px 0"><button class="sm" id="reset">Reset to sales values</button><span id="dirty" class="muted"></span></div>
+    <div id="err"></div>
+    <h3>Plan view</h3><div id="planbox"></div>
+    <h3>Side elevation</h3><div id="sidebox"></div>
+    <div id="info" class="card" style="min-height:3em">Click a member in either drawing.</div>
+    <h3>Bill of materials</h3><div id="bom"></div>
+    <div id="quotebox"></div>
+    <div class="row" style="margin:12px 0"><button class="good" id="release" disabled>Release to Shop Floor</button></div>
+    <div id="released"></div>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+const { $, $$, h, s, api, fmtIn, money, toast, guard, debounce } = X;
+const DIMS = [['width_in', 'Total width'], ['proj_in', 'Projection'], ['house_h_in', 'House height'], ['front_h_in', 'Front height']];
+let jobId = '', detail = null, last = null, seq = 0, armed = null;
+
+async function loadJobs(selectId) {
+  const jobs = await api('/api/sales/jobs'), sel = $('#jobsel');
+  sel.replaceChildren(h('option', { value: '' }, jobs.length ? 'Select a job…' : 'No jobs yet'));
+  for (const j of jobs) sel.append(h('option', { value: j.job_id }, `${j.job_id} · ${j.customer_name || 'no name'} · ${j.ready ? 'ready' : j.blockers + ' blocker(s)'}${j.released ? ' · released' : ''}`));
+  if (selectId) sel.value = selectId;
+}
+async function openJob(id) {
+  jobId = id; if (!id) return;
+  history.replaceState(null, '', '?job=' + encodeURIComponent(id));
+  detail = await api('/api/sales/jobs/' + encodeURIComponent(id));
+  buildDims(); renderLeft(); renderReleased(); await preview();
+}
+function buildDims() {
+  const box = $('#dims'); box.replaceChildren();
+  for (const [k, label] of DIMS) {
+    box.append(h('label', { class: 'field' }, h('span', {}, label),
+      h('input', { type: 'text', id: 'dim-' + k, 'data-key': k, value: detail.package[k] == null ? '' : String(detail.package[k]), oninput: dirtyPreview })));
+  }
+}
+const dirtyPreview = debounce(() => preview(), 250);
+function overrides() {
+  const o = {};
+  for (const [k] of DIMS) {
+    const v = $('#dim-' + k).value.trim();
+    if (v && v !== String(detail.package[k])) o[k] = v;
+  }
+  return o;
+}
+function chips(arr, cls) { return arr.map(t => h('span', { class: 'chip ' + (cls || '') }, t)); }
+function renderLeft() {
+  const r = detail.report, a = detail.analysis;
+  $('#pill').className = 'pill ' + (r.is_ready_for_engineering ? 'ok' : 'bad');
+  $('#pill').textContent = r.is_ready_for_engineering ? 'READY' : 'BLOCKED';
+  $('#meta').replaceChildren(h('div', { class: 'card' }, h('div', { class: 'kv' },
+    h('b', {}, 'Customer'), detail.customer_name || '—',
+    h('b', {}, 'Substrate'), `${detail.package.substrate} (rep)` + (a.substrate ? ` · vision: ${a.substrate} ${Math.round(a.substrate_confidence * 100)}%` + (a.substrate_confidence < 0.6 ? ' (advisory)' : '') : ''),
+    h('b', {}, 'Obstacles'), r.detected_obstacles.length ? r.detected_obstacles.map(o => o.kind).join(', ') : 'none flagged',
+    h('b', {}, 'Door swing'), detail.package.door_swing_detected == null ? 'unanswered' : detail.package.door_swing_detected ? 'out-swing' + (detail.package.door_clearance_confirmed ? ', clearance confirmed' : ', UNCONFIRMED') : 'none',
+    h('b', {}, 'Pitch'), r.pitch_per_foot_in == null ? '—' : `${r.pitch_per_foot_in.toFixed(2)}"/ft · ${r.pitch_deg}°`,
+    h('b', {}, 'Score'), Math.round(r.confidence_score * 100) + '%',
+    h('b', {}, 'Vision'), a.backend)));
+  const box = $('#photos'); box.replaceChildren();
+  if (!detail.photos.length) box.append(h('p', { class: 'muted' }, 'No photos uploaded yet.'));
+  for (const p of detail.photos) {
+    box.append(h('div', { class: 'card photo', 'data-photo': p.kind },
+      h('h3', {}, p.kind.replace(/_/g, ' ')),
+      h('a', { href: p.url, target: '_blank', rel: 'noopener' }, h('img', { src: p.url + '?v=' + (p.bytes || 0), alt: p.kind })),
+      h('div', { class: 'muted' }, `${p.width_px}×${p.height_px}px · sharpness ${p.sharpness != null ? p.sharpness.toFixed(2) : '?'} · ${p.note || ''}`),
+      h('div', {}, chips(p.tags.filter(t => !t.startsWith('advisory')), p.substrate_confidence < 0.6 ? 'adv' : ''), p.tags.length ? null : h('span', { class: 'muted' }, 'no tags'), h('span', { class: 'muted' }, ' via ' + p.backend))));
+  }
+  const items = $('#items'); items.replaceChildren();
+  if (!r.missing_items.length) items.append(h('p', { class: 'muted' }, 'None.'));
+  for (const m of r.missing_items) items.append(h('div', { class: 'card ' + (m.severity === 'critical_blocker' ? 'crit' : 'verify') }, h('b', {}, m.severity === 'critical_blocker' ? 'BLOCKER · ' : 'CHECK · '), m.title));
+}
+function renderReleased() {
+  const rel = detail.released;
+  $('#relpill').hidden = !rel;
+  $('#released').replaceChildren(rel ? h('div', { class: 'card ok', id: 'relcard' }, h('h3', {}, 'Released to shop floor'),
+    h('div', { class: 'kv' }, h('b', {}, 'Job cart'), h('span', { id: 'cartaddr' }, rel.cart_addr), h('b', {}, 'Frame'), rel.frame_id,
+      h('b', {}, 'Pieces'), String(rel.pieces), h('b', {}, 'Virgin sticks'), String(rel.virgin_pulls), h('b', {}, 'Drops used'), String(rel.drops_used)),
+    h('p', {}, h('a', { href: '/#bench', target: '_top' }, 'Open on the Saw Bench →'))) : '');
+}
+/* ---------------- preview ---------------- */
+async function preview() {
+  const my = ++seq, o = overrides();
+  $('#dirty').textContent = Object.keys(o).length ? 'Overridden: ' + Object.keys(o).join(', ') + ' (not saved until release)' : '';
+  let out;
+  try { out = await api('/api/engineering/preview', { method: 'POST', body: { job_id: jobId, overrides: o } }); }
+  catch (e) { if (my === seq) { $('#err').replaceChildren(h('div', { class: 'card crit' }, e.message)); } return; }
+  if (my !== seq) return;
+  last = out;
+  $('#err').replaceChildren(out.error ? h('div', { class: 'card crit', id: 'previewerr' }, out.error) : '');
+  const blockers = out.report.missing_items.filter(m => m.severity === 'critical_blocker');
+  if (blockers.length && !out.error) $('#err').append(h('div', { class: 'card verify' }, 'Blockers with these numbers: ' + blockers.map(b => b.title).join(' · ')));
+  $('#release').disabled = !(out.report.is_ready_for_engineering && !out.error);
+  armed = null; $('#release').textContent = 'Release to Shop Floor';
+  const m = out.parametric;
+  $('#planbox').replaceChildren(m ? drawPlan(m) : h('p', { class: 'muted' }, 'No drawing until the geometry is valid.'));
+  $('#sidebox').replaceChildren(m ? drawSide(m) : '');
+  renderBom(out);
+}
+function renderBom(out) {
+  const m = out.parametric, q = out.quote;
+  $('#bom').replaceChildren(m ? h('table', { id: 'bomtable' }, h('thead', {}, h('tr', {}, ['Profile', 'Qty', 'Length', 'Trail miter', 'Lead miter'].map(t => h('th', {}, t)))),
+    h('tbody', {}, m.cuts.map(c => h('tr', {}, h('td', {}, c.profile), h('td', { class: 'num' }, String(c.qty)), h('td', { class: 'num' }, fmtIn(c.length_in)),
+      h('td', {}, c.miter_deg ? `${c.miter_deg}° ${c.face.split('_')[0]}-long` : 'square'), h('td', {}, c.lead_miter_deg ? `${c.lead_miter_deg}° ${c.lead_face.split('_')[0]}-long` : 'square'))))) : '');
+  $('#quotebox').replaceChildren(q ? h('div', { class: 'card' }, h('b', {}, `Price ${money(q.price)}`), ` · material ${money(q.material_cost)} · drop savings ${money(q.savings_from_drops)} · ${q.reclaimed_ft} ft reclaimed · ${q.virgin_pulls} virgin stick(s)`,
+    q.unmet ? h('div', { class: 'muted' }, `${q.unmet} piece(s) unmet.`) : null,
+    Object.keys(q.purchase_sticks).length ? h('div', { class: 'muted' }, 'Short on stock: ' + JSON.stringify(q.purchase_sticks)) : null) : '');
+}
+/* ---------------- drawings ---------------- */
+function pick(id) {
+  $$('svg.cad .sel').forEach(e => e.classList.remove('sel'));
+  $$(`svg.cad [data-id="${id}"]`).forEach(e => e.classList.add('sel'));
+  const m = last && last.parametric && last.parametric.members.find(x => x.id === id);
+  if (m) $('#info').textContent = `${m.id} · ${m.kind.replace('_', ' ')} · ${m.profile} · cut ${fmtIn(m.length_in)}` + (m.miter_deg ? ` · ${m.miter_deg}° plumb miter` : ' · square') + (m.face_out !== 'n/a' ? ` · ${m.face_out.replace('_', ' ')} out` : '');
+}
+function hit(el, mem, text) {
+  el.setAttribute('class', (el.getAttribute('class') || '') + ' hit'); el.setAttribute('data-id', mem.id);
+  el.addEventListener('click', () => pick(mem.id)); el.append(s('title', {}, text || mem.id)); return el;
+}
+function drawPlan(m) {
+  const VW = 640, VH = 450, M = 52, sc = Math.min((VW - 2 * M) / m.width_in, (VH - 2 * M) / m.proj_in);
+  const X = x => M + x * sc, Y = y => M + y * sc, svg = s('svg', { viewBox: `0 0 ${VW} ${VH}`, class: 'cad', id: 'plan', role: 'img', 'aria-label': 'Plan view' });
+  svg.append(s('rect', { x: X(0) - 4, y: Y(0) - 16, width: m.width_in * sc + 8, height: 12, fill: '#777' }), s('text', { x: X(0), y: Y(0) - 22 }, 'HOUSE WALL'));
+  for (const r of m.members.filter(x => x.kind === 'rafter')) svg.append(hit(s('line', { x1: X(r.a[0]), y1: Y(r.a[1]), x2: X(r.b[0]), y2: Y(r.b[1]), stroke: '#0b57d0', 'stroke-width': 2.5 }), r, `${r.id} ${fmtIn(r.length_in)}`));
+  for (const r of m.members.filter(x => x.kind === 'chair_rail')) svg.append(hit(s('line', { x1: X(r.a[0]), y1: Y(r.a[1]), x2: X(r.b[0]), y2: Y(r.b[1]), stroke: '#d96b00', 'stroke-width': 5, 'stroke-linecap': 'butt' }), r, `${r.id} ${fmtIn(r.length_in)}`));
+  const ps = Math.max(7, 2 * sc);
+  for (const p of m.members.filter(x => x.kind === 'post')) svg.append(hit(s('rect', { x: X(p.a[0]) - ps / 2, y: Y(p.a[1]) - ps / 2, width: ps, height: ps, fill: '#111', stroke: '#fff', 'stroke-width': 1 }), p, `${p.id} ${fmtIn(p.length_in)}`));
+  const yb = VH - 18;                       // front bay dimension line
+  for (let i = 0; i <= m.front_bays; i++) svg.append(s('line', { x1: X(i * m.front_spacing_in), y1: yb - 5, x2: X(i * m.front_spacing_in), y2: yb + 5, stroke: '#111' }));
+  svg.append(s('line', { x1: X(0), y1: yb, x2: X(m.width_in), y2: yb, stroke: '#111' }));
+  for (let i = 0; i < m.front_bays; i++) svg.append(s('text', { x: X((i + 0.5) * m.front_spacing_in), y: yb - 8, 'text-anchor': 'middle' }, fmtIn(m.front_spacing_in)));
+  svg.append(s('text', { x: 6, y: M + m.proj_in * sc / 2 }, `${m.side_bays} bays`), s('text', { x: 6, y: M + m.proj_in * sc / 2 + 14 }, `@ ${fmtIn(m.side_spacing_in)}`),
+    s('text', { x: VW - 6, y: 16, 'text-anchor': 'end' }, `${fmtIn(m.width_in)} wide × ${fmtIn(m.proj_in)} out · ${m.front_bays} front bays`));
+  return svg;
+}
+function drawSide(m) {
+  const VW = 640, VH = 380, M = 52, maxZ = Math.max(m.house_h_in, m.front_h_in), sc = Math.min((VW - 2 * M) / m.proj_in, (VH - 2 * M) / maxZ);
+  const X = y => M + y * sc, Y = z => VH - M - z * sc, svg = s('svg', { viewBox: `0 0 ${VW} ${VH}`, class: 'cad', id: 'side', role: 'img', 'aria-label': 'Side elevation' });
+  svg.append(s('line', { x1: M - 20, y1: Y(0), x2: VW - 10, y2: Y(0), stroke: '#111', 'stroke-width': 2 }),
+    s('line', { x1: X(0), y1: Y(0), x2: X(0), y2: Y(m.house_h_in), stroke: '#777', 'stroke-width': 8 }), s('text', { x: X(0) + 8, y: Y(m.house_h_in) - 6 }, 'HOUSE WALL'));
+  for (const p of m.members.filter(x => x.kind === 'post' && x.a[0] === 0)) svg.append(hit(s('line', { x1: X(p.a[1]), y1: Y(0), x2: X(p.a[1]), y2: Y(p.b[2]), stroke: '#111', 'stroke-width': Math.max(5, 2 * sc) }), p, `${p.id} ${fmtIn(p.length_in)}`));
+  svg.append(s('line', { x1: X(0), y1: Y(36), x2: X(m.proj_in), y2: Y(36), stroke: '#d96b00', 'stroke-width': 4, 'stroke-dasharray': '8 5' }), s('text', { x: X(m.proj_in) + 4, y: Y(36) + 4 }, '36" AFF'));
+  const raf = m.members.find(x => x.kind === 'rafter');
+  if (raf) svg.append(hit(s('line', { x1: X(raf.a[1]), y1: Y(raf.a[2]), x2: X(raf.b[1]), y2: Y(raf.b[2]), stroke: '#0b57d0', 'stroke-width': 6 }), raf, `${raf.id} ${fmtIn(raf.length_in)} · ${m.pitch_deg}°`));
+  const th = Math.atan2(m.drop_in, m.proj_in), r0 = 46, x0 = X(0), y0 = Y(m.house_h_in);
+  svg.append(s('line', { x1: x0, y1: y0, x2: X(m.proj_in), y2: y0, stroke: '#888', 'stroke-dasharray': '4 4' }),
+    s('path', { d: `M ${x0 + r0} ${y0} A ${r0} ${r0} 0 0 1 ${x0 + r0 * Math.cos(th)} ${y0 + r0 * Math.sin(th)}`, fill: 'none', stroke: '#c4180b', 'stroke-width': 2.5, id: 'pitcharc' }),
+    s('text', { x: X(m.proj_in / 2), y: (y0 + Y(m.front_h_in)) / 2 + 34, 'text-anchor': 'middle', fill: '#c4180b', id: 'pitchlabel', style: 'font-weight:800;font-size:14px' }, `${m.pitch_deg}° · ${m.pitch_per_foot_in.toFixed(2)}"/ft`),
+    s('text', { x: 6, y: Y(m.house_h_in / 2) }, fmtIn(m.house_h_in)), s('text', { x: X(m.proj_in) + 6, y: Y(m.front_h_in / 2) }, fmtIn(m.front_h_in)),
+    s('text', { x: X(m.proj_in / 2), y: Y(0) + 20, 'text-anchor': 'middle' }, `projection ${fmtIn(m.proj_in)} · drop ${fmtIn(m.drop_in)}`));
+  return svg;
+}
+/* ---------------- shift batch ---------------- */
+let batchSel = new Set();
+async function loadBatchable() {
+  const jobs = await api('/api/engineering/batchable'), box = $('#batchlist');
+  batchSel = new Set([...batchSel].filter(j => jobs.some(x => x.job_id === j)));
+  box.replaceChildren(...(jobs.length ? jobs.map(j => h('label', { class: 'row', style: 'gap:8px;font-weight:700' },
+    h('input', { type: 'checkbox', style: 'width:28px;height:28px;flex:0 0 auto', 'data-job': j.job_id, checked: batchSel.has(j.job_id) || null, onchange: e => { e.target.checked ? batchSel.add(j.job_id) : batchSel.delete(j.job_id); syncBatchButtons(); } }),
+    `${j.job_id} · ${j.pending} piece(s) · ${j.profiles.join(', ')}`)) : [h('p', { class: 'muted' }, 'No released jobs waiting. Release at least two to batch them.')]));
+  syncBatchButtons();
+}
+function syncBatchButtons() { $('#bcompile').disabled = batchSel.size < 2; $('#brelease').disabled = true; }
+function batchTable(p) {
+  const rows = [['Virgin sticks', 'virgin_sticks'], ['Drops used', 'drops_used'], ['Drops created', 'remnants_created'], ['Lead cuts skipped', 'native_skips'], ['Scrap lb', 'scrap_lb'], ['Yield %', 'yield_pct']];
+  const sv = { virgin_sticks: p.saved.virgin_sticks, scrap_lb: p.saved.scrap_lb, yield_pct: p.saved.yield_pts, remnants_created: p.saved.remnants_gained };
+  return h('table', { id: 'batchtable' }, h('thead', {}, h('tr', {}, ['', 'Back to back', 'Batched', 'Saved'].map(t => h('th', {}, t)))),
+    h('tbody', {}, rows.map(([label, k]) => h('tr', {}, h('td', {}, label), h('td', { class: 'num' }, String(p.sequential[k])), h('td', { class: 'num' }, String(p.batch[k])), h('td', { class: 'num' }, sv[k] == null ? '' : String(sv[k]))))));
+}
+$('#bcompile').addEventListener('click', () => guard(async () => {
+  const p = await api('/api/engineering/batch-compile', { method: 'POST', body: { job_ids: [...batchSel] } });
+  $('#bresult').replaceChildren(h('div', { class: 'muted' }, `${p.batch_id} · ${p.strategy.replace(/_/g, ' ')} · ${p.batch.pieces} pieces`), batchTable(p),
+    p.batch.unmet ? h('div', { class: 'card crit' }, `${p.batch.unmet} piece(s) cannot be cut from current stock. Receive or order sticks first.`) : null);
+  $('#brelease').disabled = p.batch.unmet > 0;
+}));
+$('#brelease').addEventListener('click', () => guard(async () => {
+  const out = await api('/api/engineering/batch-release', { method: 'POST', body: { job_ids: [...batchSel] } });
+  toast(`${out.batch_id} released to the bench`); batchSel.clear();
+  $('#bresult').replaceChildren(h('div', { class: 'card ok', id: 'batchrel' }, h('b', {}, out.batch_id), ` · frame ${out.frame_id} · `, h('a', { href: '/#bench', target: '_top' }, 'Open on the Saw Bench →')));
+  await loadBatchable(); await loadJobs(jobId);
+}));
+/* ---------------- release ---------------- */
+$('#release').addEventListener('click', async () => {
+  const btn = $('#release');
+  if (armed !== jobId) { armed = jobId; btn.textContent = 'Tap again to confirm release'; setTimeout(() => { if (armed === jobId) { armed = null; btn.textContent = 'Release to Shop Floor'; } }, 5000); return; }
+  armed = null; btn.disabled = true;
+  const out = await guard(() => api('/api/engineering/release', { method: 'POST', body: { job_id: jobId, overrides: overrides() } }));
+  if (out) { toast(`Released: cart ${out.cart_addr}`); await loadJobs(jobId); await openJob(jobId); loadBatchable(); }
+  btn.textContent = 'Release to Shop Floor'; if (last) btn.disabled = !(last.report.is_ready_for_engineering && !last.error);
+});
+$('#reset').addEventListener('click', () => { buildDims(); preview(); });
+$('#refresh').addEventListener('click', () => guard(async () => { await loadJobs(jobId); await loadBatchable(); if (jobId) await openJob(jobId); }));
+$('#jobsel').addEventListener('change', e => guard(() => openJob(e.target.value)));
+guard(async () => { const q = new URLSearchParams(location.search).get('job'); await loadJobs(q); loadBatchable(); if (q) await openJob(q); });
+</script></body></html>
