@@ -220,3 +220,13 @@ The reorder report used to look only backward (sticks pulled / days). It now als
 * Burn rate is flat-rate over the trailing window; it does not see scheduled jobs (a pipeline lookahead is not built).
 * Prices are `cost_per_ft` x charged length; no scrap-metal salvage credit and no per-stick vendor pricing tiers.
 * Parametric: front-wall rails and posts only follow the rules above (no gable, no knee-wall variants, no door framing; the door check only gates release). Post length equals the local roof-plane height with no seat allowance; rafters assume a plumb cut across the profile width. Verify these against your build standard before quoting real jobs.
+
+## Visual Walkthrough & Hardware Viewports
+
+| Saw Bench Telemetry (`/ws/saw/station_1`) | Parametric Sales Intake |
+| :---: | :---: |
+| ![Saw Bench](assets/saw_bench.png) | ![Sales Intake](assets/sales_intake.png) |
+
+| Admin & Subnet Access Control | 203 DPI ESC/POS Thermal Label |
+| :---: | :---: |
+| ![Admin](assets/admin.png) | ![ESC/POS Label](assets/label.png) |

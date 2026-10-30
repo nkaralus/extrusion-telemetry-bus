@@ -19,3 +19,6 @@ engine-telemetry-bus/
 mule-protocol/
 wget-log
 long_prompt.txt
+
+bus.db*
+*.lock
